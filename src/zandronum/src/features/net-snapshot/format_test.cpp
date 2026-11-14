@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 
 #include <string.h>
+#include <stdlib.h>		// abs
 
 #include "doomdef.h"		// TICRATE
 
@@ -481,4 +482,651 @@ TEST(SnapshotFormat, AWideFramesCosmeticEventsTakeThreeBytesAnAxis)
 	SnapCosCursor cut = { buf + 1, buf + cn - 1 };
 	CosReadBlood(cut, f, buf[0], cr);
 	EXPECT_GT(cut.p, cut.end);
+}
+
+//*****************************************************************************
+//	THE RECORD AND EVENT CODECS
+//
+// The runner's remaining blocks: the codecs end to end, the lengths the writer
+// and reader must agree on, and the quantizer sweeps over a fixed seed. The
+// runner's time base block is not here; it tests i_tictime, which belongs with
+// the posix timers rather than this module.
+
+#define FORMATTEST_SAMPLES	200000
+
+namespace
+{
+
+const SnapFrame FORMATTEST_NARROW = FrameNarrow();
+
+// [Kaori-Chani] The blocks below run on the narrow frame and the widest.
+const SnapFrame FORMATTEST_FRAMES[2] = { FrameNarrow(), FrameWidest() };
+
+// [Kaori-Chani] A random 32-bit pattern read as a signed 16.16 value, which is what a 32-bit
+// fixed_t did with it: the sweep must still cover negative positions and velocities.
+fixed_t formattest_Sample(DWORD& s)
+{
+	return fixed_t::FromSignedBits(formattest_Next(s));
+}
+
+// [Kaori-Chani] Velocity clamps to plus or minus 8191/8192 steps and rounds to nearest, so the
+// error against the clamped input is within half a step either way.
+bool formattest_VelBad(fixed_t v)
+{
+	const fixed_t rt = DequantVel(QuantVel(v));
+	if (v > DequantVel(8191)) v = DequantVel(8191);
+	if (v < DequantVel(-8192)) v = DequantVel(-8192);
+	return ((v - rt) < -(1 << 13)) || ((v - rt) >= (1 << 13));
+}
+
+} // namespace
+
+TEST(SnapshotFormat, EffectsPackingRoundTripsOverEveryValue)
+{
+	for (unsigned int e = 0; e < 256; ++e)
+		EXPECT_EQ((BYTE)e, PackEffects(UnpackEffects((BYTE)e))) << "effects 0x" << std::hex << e;
+}
+
+// [Kaori-Chani] Position rounds to nearest: within half a step either way, and within one step
+// below above 0x7FFF7FFF, where the top step is held.
+TEST(SnapshotFormat, PositionRoundsToNearestOverTheSweep)
+{
+	DWORD seed = FORMATTEST_SEED;
+	int bad = 0;
+	for (int i = 0; i < FORMATTEST_SAMPLES; ++i)
+	{
+		const fixed_t v = formattest_Sample(seed);
+		const SQWORD d = (SQWORD)v - (SQWORD)DequantPos(QuantPos(v));
+		if ((v > fixed_t::FromSignedBits(0x7FFF7FFFu)) ? ((d < 0x8000) || (d > 0xFFFF))
+			: ((d < -0x8000) || (d > 0x7FFF)))
+			++bad;
+	}
+	EXPECT_EQ(0, bad) << bad << " of " << FORMATTEST_SAMPLES << " samples (seed 0x"
+		<< std::hex << (unsigned int)FORMATTEST_SEED << ")";
+}
+
+// [Kaori-Chani] The 32-bit extremes land on the narrow frame's ends, so a precision change that
+// broke it shows here. On 48.16 a value past them clamps to the same ends rather than wrapping.
+TEST(SnapshotFormat, PositionQuantizationSpansThe32BitRangeAndClampsPastIt)
+{
+	EXPECT_EQ(32767, QuantPos((fixed_t)0x7FFFFFFF));
+	EXPECT_EQ(-32768, QuantPos(fixed_t::FromSignedBits(0x80000000u)));
+	EXPECT_EQ(32767, QuantPos(FIXED_MAX)) << "a 48.16 position past the frame clamps to its end";
+	EXPECT_EQ(-32768, QuantPos(FIXED_MIN));
+}
+
+// [Kaori-Chani] Written, read back, then walked as the decoder walks it, the payload past the
+// length byte a self-describing type carries.
+TEST(SnapshotFormat, AMoverRecordRoundTripsThroughTheDecodersWalk)
+{
+	SnapMoverPlat a;
+	memset(&a, 0, sizeof(a));
+	a.speed = 0x12345678; a.low = -4096; a.high = 0x7FFFFFFF;
+	a.planeD = -123456; a.wait = 105; a.count = -3; a.tag = 999;
+	a.platID = -1; a.crush = -1; a.status = 2; a.oldStatus = 1; a.type = 9;
+
+	BYTE body[SNAPMV_BODY_MAX];
+	const unsigned int bn = WriteMoverPlat(body, a);
+	BYTE mrec[SNAP_MAX_EVENT_BYTES];
+	const unsigned int rn = WriteMoverBody(mrec, SNAPMV_PLAT, SNAPMVF_BLOCKED, 4242, 0xA5,
+		body, bn);
+	ASSERT_EQ((unsigned int)SNAPMV_PLAT_BYTES, bn);
+	ASSERT_LE(rn, (unsigned int)SNAP_MAX_EVENT_BYTES);
+
+	unsigned int n = 0;
+	bool bSkip = true;
+	const BYTE type = (BYTE)(mrec[0] & SNAPEV_TYPEMASK);
+	ASSERT_EQ(SNAPEVLEN_OK,
+		EventRecordBytes(FORMATTEST_NARROW, type, mrec + 1, rn - 1, n, bSkip));
+	EXPECT_FALSE(bSkip);
+	ASSERT_EQ(rn - 1, n);
+
+	const BYTE * const p = mrec + 1 + 1;	// past mask, past length
+	BYTE cls = 0, mflags = 0, gen = 0;
+	WORD index = 0;
+	SnapMoverPlat b;
+	memset(&b, 0, sizeof(b));
+	ReadMoverHeader(p, MoverHeaderBytes(ZSNAP_VERSION), cls, mflags, index, gen);
+	ReadMoverPlat(p + SNAPMV_HEADER_BYTES, b);
+	EXPECT_EQ(SNAPMV_PLAT, cls);
+	EXPECT_EQ(SNAPMVF_BLOCKED, mflags);
+	EXPECT_EQ(4242, index);
+	EXPECT_EQ(0xA5, gen);
+	EXPECT_EQ(n - 1, SNAPMV_HEADER_BYTES + MoverBodyBytes(cls, mflags));
+	EXPECT_EQ(0, memcmp(&a, &b, sizeof(a)));
+}
+
+// [Kaori-Chani] A polyobject body with one entry of every shape, walked by the reader's own path:
+// 102 bytes narrow, 106 with x and y wide.
+TEST(SnapshotFormat, APolyobjectBodyRoundTripsInBothFrames)
+{
+	for (unsigned int fi = 0; fi < 2; ++fi)
+	{
+		const SnapFrame& fr = FORMATTEST_FRAMES[fi];
+		SnapMoverPoly a;
+		memset(&a, 0, sizeof(a));
+		a.x = -123456; a.y = 0x7FFF0000; a.angle = 0xC0000000u; a.count = 4;
+		a.e[0].kind = SNAPPO_ROTATE | SNAPPO_BLOCKED; a.e[0].gen = 7;
+		a.e[0].speed = -5000; a.e[0].dist = -2;
+		a.e[1].kind = SNAPPO_MOVE | SNAPPO_NOINTERP; a.e[1].gen = 8;
+		a.e[1].dist = 99; a.e[1].angle = 4095; a.e[1].xSpeed = -3; a.e[1].ySpeed = 4;
+		a.e[2].kind = SNAPPO_MOVETO | SNAPPO_SPECIAL; a.e[2].gen = 9;
+		a.e[2].xTarget = 3; a.e[2].yTarget = -4;
+		a.e[3].kind = SNAPPO_SWING; a.e[3].gen = 10; a.e[3].direction = -1;
+		a.e[3].totalDist = 64 << FRACBITS; a.e[3].tics = 5;
+		a.e[3].waitTics = 70; a.e[3].close = 1;
+
+		BYTE body[SNAPMV_BODY_MAX];
+		const unsigned int bn = WriteMoverPoly(body, fr, a);
+		BYTE mrec[SNAP_MAX_EVENT_BYTES];
+		const unsigned int rn = WriteMoverBody(mrec, SNAPMV_POLY, SNAPMVF_BLOCKED, 17, 0x5A,
+			body, bn);
+		const BYTE * const p = mrec + 1 + 1;	// past mask, past length
+		BYTE cls = 0, mflags = 0, gen = 0;
+		WORD index = 0;
+		ReadMoverHeader(p, SNAPMV_HEADER_BYTES, cls, mflags, index, gen);
+		const unsigned int want = MoverRecordBodyBytes(fr, cls, mflags,
+			p + SNAPMV_HEADER_BYTES, rn - 2 - SNAPMV_HEADER_BYTES);
+		SnapMoverPoly b;
+		memset(&b, 0, sizeof(b));
+
+		EXPECT_LE(bn, (unsigned int)SNAPMV_BODY_MAX) << "frame " << fi;
+		EXPECT_EQ(bn, want) << "frame " << fi;
+		EXPECT_EQ((fi == 0) ? 102u : 106u, bn) << "frame " << fi;
+		EXPECT_LE(rn, (unsigned int)SNAP_MAX_EVENT_BYTES) << "frame " << fi;
+		ASSERT_TRUE(ReadMoverPoly(p + SNAPMV_HEADER_BYTES, fr, want, b)) << "frame " << fi;
+		EXPECT_EQ(SNAPMV_POLY, cls) << "frame " << fi;
+		EXPECT_EQ(17, index) << "frame " << fi;
+		EXPECT_EQ(0x5A, gen) << "frame " << fi;
+		EXPECT_EQ(a.x, b.x) << "frame " << fi;
+		EXPECT_EQ(a.y, b.y) << "frame " << fi;
+		EXPECT_EQ(a.angle, b.angle) << "frame " << fi;
+		ASSERT_EQ(a.count, b.count) << "frame " << fi;
+		for (unsigned int i = 0; i < a.count; ++i)
+		{
+			const SnapPolyEntry& x = a.e[i];
+			const SnapPolyEntry& y = b.e[i];
+			EXPECT_EQ(x.kind, y.kind) << "frame " << fi << ", entry " << i;
+			EXPECT_EQ(x.gen, y.gen) << "frame " << fi << ", entry " << i;
+			EXPECT_EQ(x.speed, y.speed) << "frame " << fi << ", entry " << i;
+			EXPECT_EQ(x.dist, y.dist) << "frame " << fi << ", entry " << i;
+			EXPECT_EQ(x.angle, y.angle) << "frame " << fi << ", entry " << i;
+			EXPECT_EQ(x.direction, y.direction) << "frame " << fi << ", entry " << i;
+			EXPECT_EQ(x.xSpeed, y.xSpeed) << "frame " << fi << ", entry " << i;
+			EXPECT_EQ(x.ySpeed, y.ySpeed) << "frame " << fi << ", entry " << i;
+			EXPECT_EQ(x.xTarget, y.xTarget) << "frame " << fi << ", entry " << i;
+			EXPECT_EQ(x.yTarget, y.yTarget) << "frame " << fi << ", entry " << i;
+			EXPECT_EQ(x.totalDist, y.totalDist) << "frame " << fi << ", entry " << i;
+			EXPECT_EQ(x.tics, y.tics) << "frame " << fi << ", entry " << i;
+			EXPECT_EQ(x.waitTics, y.waitTics) << "frame " << fi << ", entry " << i;
+			EXPECT_EQ(x.close, y.close) << "frame " << fi << ", entry " << i;
+		}
+		// [Kaori-Chani] One byte short must be refused, not read.
+		EXPECT_EQ(0u, MoverPolyBodyBytes(fr, p + SNAPMV_HEADER_BYTES, bn - 1)) << "frame " << fi;
+	}
+}
+
+// [Kaori-Chani] The skip path only a newer peer reaches, in both frames: a fixed type's width
+// follows the frame, and a self-describing one's does not.
+TEST(SnapshotFormat, EveryEventTypeReportsItsOwnLength)
+{
+	for (unsigned int fi = 0; fi < 2; ++fi)
+	{
+		const SnapFrame& fr = FORMATTEST_FRAMES[fi];
+		BYTE ev[SNAP_MAX_EVENT_BYTES + 8];
+		memset(ev, 0, sizeof(ev));
+		for (unsigned int t = 0; t <= SNAPEV_MAX; ++t)
+		{
+			const BYTE type = (BYTE)t;
+			const bool bSelf = EventSelfDescribing(type);
+			EXPECT_EQ(t >= (unsigned int)SNAPEV_SELFDESC, bSelf)
+				<< "frame " << fi << ", type " << t;
+
+			unsigned int n = 0;
+			bool bSkip = false;
+			if (bSelf)
+			{
+				// Length byte then payload, and the reader must skip exactly that far without
+				// knowing anything else about the type. Known types are handed over, unknown ones
+				// skipped; both are SNAPEVLEN_OK over the same bytes, so the flag alone separates.
+				const unsigned int len = 1 + (t % 7);
+				const bool bWantSkip = (EventSelfDescKnown(type) == false);
+				ev[0] = (BYTE)len;
+				EXPECT_EQ(SNAPEVLEN_OK, EventRecordBytes(fr, type, ev, 1 + len, n, bSkip))
+					<< "frame " << fi << ", type " << t;
+				EXPECT_EQ(1 + len, n) << "frame " << fi << ", type " << t;
+				EXPECT_EQ(bWantSkip, bSkip) << "frame " << fi << ", type " << t;
+
+				// A zero length would collide with the unknown sentinel.
+				ev[0] = 0;
+				EXPECT_EQ(SNAPEVLEN_BAD, EventRecordBytes(fr, type, ev, 8, n, bSkip))
+					<< "frame " << fi << ", type " << t << " accepted a zero length";
+				ev[0] = (BYTE)len;
+				for (unsigned int avail = 0; avail <= len; ++avail)
+				{
+					ASSERT_EQ(SNAPEVLEN_BAD, EventRecordBytes(fr, type, ev, avail, n, bSkip))
+						<< "frame " << fi << ", type " << t << " accepted " << avail
+						<< " of " << (1 + len) << " bytes";
+				}
+				continue;
+			}
+
+			// Fixed range: a known type reports its own width, an unknown one stops the parse
+			// rather than being skipped.
+			const unsigned int fixed = EventBytes(fr, type);
+			const int r = EventRecordBytes(fr, type, ev, sizeof(ev), n, bSkip);
+			if (fixed == 0)
+			{
+				EXPECT_EQ(SNAPEVLEN_UNKNOWN, r)
+					<< "frame " << fi << ", unknown fixed type " << t << " did not stop the parse";
+				continue;
+			}
+			EXPECT_EQ(SNAPEVLEN_OK, r) << "frame " << fi << ", type " << t;
+			EXPECT_EQ(fixed, n) << "frame " << fi << ", type " << t;
+			EXPECT_FALSE(bSkip) << "frame " << fi << ", type " << t;
+			for (unsigned int avail = 0; avail < fixed; ++avail)
+			{
+				ASSERT_EQ(SNAPEVLEN_BAD, EventRecordBytes(fr, type, ev, avail, n, bSkip))
+					<< "frame " << fi << ", type " << t << " accepted " << avail
+					<< " of " << fixed << " bytes";
+			}
+		}
+	}
+}
+
+// [Kaori-Chani] A zeroed state takes the narrow APPEAR; an unresolvable one is forced wide.
+TEST(SnapshotFormat, AppearChoosesItsWidthFromTheState)
+{
+	SnapEntityState narrowState, wideState;
+	memset(&narrowState, 0, sizeof(narrowState));
+	memset(&wideState, 0, sizeof(wideState));
+	wideState.qstate = SNAP_STATE_UNKNOWN;	// depth 7: forced wide
+	wideState.qtics = 255;					// the no-duration sentinel, also wide
+	EXPECT_TRUE(AppearIsNarrow(narrowState));
+	EXPECT_FALSE(AppearIsNarrow(wideState));
+}
+
+// [Kaori-Chani] The three group lengths agree while every group is fixed, and the reader's helper
+// refuses every truncation; the values survive the width the writer chose, sentinels included.
+TEST(SnapshotFormat, TheThreeGroupLengthsAgreeOverEveryMask)
+{
+	SnapEntityState states[2];
+	memset(&states[0], 0, sizeof(states[0]));
+	memset(&states[1], 0, sizeof(states[1]));
+	states[1].qstate = SNAP_STATE_UNKNOWN;
+	states[1].qtics = 255;
+
+	for (unsigned int s = 0; s < 4; ++s)
+	{
+		const SnapEntityState& g = states[s & 1];
+		const SnapFrame& fr = FORMATTEST_FRAMES[s >> 1];
+		BYTE gbuf[SNAP_MAX_RECORD_BYTES];
+		for (unsigned int m = 0; m <= SNAPGRP_GROUPMASK; ++m)
+		{
+			const BYTE mask = (BYTE)(m & SNAPGRP_GROUPMASK);
+			if (mask != (BYTE)m)
+				continue;
+			memset(gbuf, 0, sizeof(gbuf));
+			const unsigned int written = WriteGroups(gbuf, fr, g, mask);
+			const unsigned int wide = GroupBytes(fr, mask);
+			const unsigned int actual = GroupBytesFor(fr, mask, g);
+			EXPECT_EQ(actual, written) << "state " << s << ", mask " << (unsigned int)mask;
+			EXPECT_LE(actual, wide) << "state " << s << ", mask " << (unsigned int)mask;
+
+			unsigned int need = 0;
+			EXPECT_TRUE(GroupBytesRead(fr, mask, gbuf, wide, need))
+				<< "state " << s << ", mask " << (unsigned int)mask;
+			EXPECT_EQ(actual, need) << "state " << s << ", mask " << (unsigned int)mask;
+
+			for (unsigned int avail = 0; avail < actual; ++avail)
+			{
+				unsigned int bad = 0;
+				ASSERT_FALSE(GroupBytesRead(fr, mask, gbuf, avail, bad))
+					<< "state " << s << ", mask " << (unsigned int)mask << " accepted "
+					<< avail << " of " << actual << " bytes";
+			}
+
+			if (mask & SNAPGRP_APPEAR)
+			{
+				SnapEntityState back;
+				memset(&back, 0, sizeof(back));
+				ReadGroups(gbuf, fr, back, mask);
+				EXPECT_EQ(g.qtics, back.qtics) << "state " << s << ", mask " << (unsigned int)mask;
+				EXPECT_EQ(g.qstate, back.qstate) << "state " << s << ", mask " << (unsigned int)mask;
+			}
+		}
+	}
+}
+
+// [Kaori-Chani] The record size constants agree with GroupBytes in the narrow frame and the
+// widest, as does the budget's per-frame worst case.
+TEST(SnapshotFormat, TheRecordSizeConstantsAgreeWithTheFrames)
+{
+	for (unsigned int fi = 0; fi < 2; ++fi)
+	{
+		const unsigned int worst = SNAP_IDGAP_MAXBYTES + 1 + 2 + 2
+			+ GroupBytes(FORMATTEST_FRAMES[fi], SNAPGRP_ALL);
+		EXPECT_LE(worst, (unsigned int)SNAP_MAX_RECORD_BYTES) << "frame " << fi;
+		EXPECT_EQ(RecordBytesMax(FORMATTEST_FRAMES[fi]), worst) << "frame " << fi;
+	}
+	EXPECT_EQ((unsigned int)SNAP_MAX_RECORD_BYTES_NARROW, RecordBytesMax(FORMATTEST_NARROW));
+	EXPECT_EQ((unsigned int)SNAP_MAX_RECORD_BYTES, RecordBytesMax(FrameWidest()));
+	EXPECT_LE(SNAP_EVENT_HEADER_MAX + EventBytes(FrameWidest(), SNAPEV_BRANCH),
+		(unsigned int)SNAP_MAX_EVENT_BYTES);
+}
+
+// [Kaori-Chani] An enter with a target: the bit, the field and the length.
+TEST(SnapshotFormat, AnEnterCarriesItsTargetInTwoMoreBytes)
+{
+	SnapEntityState z;
+	memset(&z, 0, sizeof(z));
+	BYTE eb[SNAP_MAX_RECORD_BYTES];
+	const unsigned int plain = WriteRecordBody(eb, FORMATTEST_NARROW,
+		(BYTE)(SNAPGRP_ALL | SNAPGRP_ENTER), 1234, z);
+	const unsigned int withT = WriteRecordBody(eb, FORMATTEST_NARROW,
+		(BYTE)(SNAPGRP_ALL | SNAPGRP_ENTER), 1234, z, NULL, 77);
+	const WORD cls = Read16(eb + 1);
+	EXPECT_EQ(plain + 2, withT);
+	EXPECT_NE(0, cls & SNAP_CLASS_TARGET);
+	EXPECT_EQ(1234, cls & SNAP_CLASS_MASK);
+	EXPECT_EQ(77, Read16(eb + 3));
+}
+
+// [Kaori-Chani] The event codec end to end: byte counts, what the writer touched against what it
+// reported, and the values against what went in.
+TEST(SnapshotFormat, TheEventCodecRoundTripsAndTouchesNothingPastItsLength)
+{
+	const BYTE canary = 0xAA;
+	BYTE buf[SNAP_MAX_EVENT_BYTES + 8];
+	memset(buf, canary, sizeof(buf));
+
+	SnapEntityState e;
+	memset(&e, 0, sizeof(e));
+	e.qstate = 0x1234;
+	e.qtics = 7;
+	e.qx = -1000;
+	e.qy = 2000;
+	e.qz = 40;
+	const unsigned int evTic = 0xBEEF;
+	const unsigned int n = WriteEventBody(buf, FORMATTEST_NARROW, SNAPEV_BRANCH, e, evTic);
+	EXPECT_EQ(SNAP_EVENT_MASK_BYTES + EventBytes(FORMATTEST_NARROW, SNAPEV_BRANCH), n);
+	ASSERT_LE(n, (unsigned int)SNAP_MAX_EVENT_BYTES);
+
+	for (unsigned int i = n; i < (unsigned int)sizeof(buf); ++i)
+		ASSERT_EQ(canary, buf[i]) << "byte " << i << " past the reported length " << n;
+
+	EXPECT_NE(0, buf[0] & SNAPGRP_EVENT) << "the body's byte 0 announces EVENT";
+	EXPECT_EQ(SNAPEV_BRANCH, buf[0] & SNAPEV_TYPEMASK);
+
+	SnapEntityState r;
+	memset(&r, 0, sizeof(r));
+	const WORD ticBack = ReadEvent(buf + SNAP_EVENT_MASK_BYTES, FORMATTEST_NARROW,
+		SNAPEV_BRANCH, r);
+	EXPECT_EQ((WORD)evTic, ticBack);
+	EXPECT_EQ(e.qstate, r.qstate);
+	EXPECT_EQ(e.qtics, r.qtics);
+	EXPECT_EQ(e.qx, r.qx);
+	EXPECT_EQ(e.qy, r.qy);
+	EXPECT_EQ(e.qz, r.qz);
+}
+
+// [Kaori-Chani] Both forms, a gap of each width, and the backwards step of the unsorted prefix,
+// which decodes only because the gap is taken mod 2^16.
+TEST(SnapshotFormat, TheEntityIdCodecRoundTrips)
+{
+	static const WORD ids[6] = { 1, 2, 900, 1000, 65530, 3 };
+	BYTE idbuf[6 * SNAP_IDGAP_MAXBYTES];
+	SnapIdCursor w;
+	IdCursorReset(w);
+	unsigned int off = 0;
+	for (unsigned int i = 0; i < 6; ++i)
+	{
+		const unsigned int want = RecordIdBytes(ids[i], w);
+		const unsigned int got = WriteRecordId(idbuf + off, ids[i], w);
+		// The layout pass sizes a chunk from RecordIdBytes, so a disagreement is a chunk
+		// overrunning its datagram.
+		EXPECT_EQ(want, got) << "id " << ids[i];
+		off += got;
+	}
+
+	SnapIdCursor r;
+	IdCursorReset(r);
+	unsigned int ro = 0;
+	for (unsigned int i = 0; i < 6; ++i)
+	{
+		WORD back = 0;
+		const unsigned int used = ReadRecordId(idbuf + ro, off - ro, back, r);
+		ASSERT_NE(0u, used) << "id " << ids[i];
+		ASSERT_EQ(ids[i], back) << "id " << ids[i];
+		ro += used;
+	}
+}
+
+// [Kaori-Chani] A gap cut short by the payload's end is refused, as is a fourth continuation byte.
+TEST(SnapshotFormat, AnOverlongOrTruncatedIdGapIsRefused)
+{
+	BYTE bad[8];
+	memset(bad, 0xFF, sizeof(bad));
+	unsigned int gap = 123;
+	EXPECT_EQ(0u, ReadIdGap(bad, sizeof(bad), gap)) << "an overlong gap";
+
+	const unsigned int wide = PutIdGap(bad, 40000);
+	for (unsigned int avail = 0; avail < wide; ++avail)
+		ASSERT_EQ(0u, ReadIdGap(bad, avail, gap)) << avail << " of " << wide << " bytes";
+}
+
+// [Kaori-Chani] The local block through the same three checks, every fixed_t unchanged, with
+// values in each field's sign bit and top byte.
+TEST(SnapshotFormat, TheLocalBlockRoundTripsEveryField)
+{
+	const BYTE canary = 0x5C;
+	BYTE buf[SNAP_MAX_EVENT_BYTES + 8];
+	memset(buf, canary, sizeof(buf));
+
+	SnapLocalState s;
+	s.clientTic = 0xDEADBEEF;
+	s.x = (fixed_t)0x7FFFFFFF;
+	s.y = fixed_t::FromSignedBits(0x80000000u);
+	s.z = -1;
+	s.velx = (fixed_t)0x01020304;
+	s.vely = (fixed_t)-0x01020304;
+	s.velz = 0;
+	s.jumpTics = -2;
+
+	const unsigned int n = WriteLocalBody(buf, FORMATTEST_NARROW, s);
+	EXPECT_EQ(SNAP_EVENT_MASK_BYTES + EventBytes(FORMATTEST_NARROW, SNAPEV_LOCAL), n);
+	ASSERT_LE(n, (unsigned int)SNAP_MAX_EVENT_BYTES);
+	for (unsigned int i = n; i < (unsigned int)sizeof(buf); ++i)
+		ASSERT_EQ(canary, buf[i]) << "byte " << i << " past the reported length " << n;
+
+	EXPECT_NE(0, buf[0] & SNAPGRP_EVENT);
+	EXPECT_EQ(SNAPEV_LOCAL, buf[0] & SNAPEV_TYPEMASK);
+
+	SnapLocalState b;
+	memset(&b, 0, sizeof(b));
+	ReadLocal(buf + SNAP_EVENT_MASK_BYTES, FORMATTEST_NARROW, b);
+	EXPECT_EQ(s.clientTic, b.clientTic);
+	EXPECT_EQ(s.x, b.x);
+	EXPECT_EQ(s.y, b.y);
+	EXPECT_EQ(s.z, b.z);
+	EXPECT_EQ(s.velx, b.velx);
+	EXPECT_EQ(s.vely, b.vely);
+	EXPECT_EQ(s.velz, b.velz);
+	EXPECT_EQ(s.jumpTics, b.jumpTics);
+}
+
+// [Kaori-Chani] Angle truncates: reconstruction error under one step (2^20 BAM).
+TEST(SnapshotFormat, AngleTruncatesWithinOneStep)
+{
+	DWORD seed = FORMATTEST_SEED;
+	int bad = 0;
+	for (int i = 0; i < FORMATTEST_SAMPLES; ++i)
+	{
+		const angle_t a = (angle_t)formattest_Next(seed);
+		if (a - DequantAngle(QuantAngle(a)) >= (1u << 20))
+			++bad;
+	}
+	EXPECT_EQ(0, bad) << bad << " of " << FORMATTEST_SAMPLES << " samples (seed 0x"
+		<< std::hex << (unsigned int)FORMATTEST_SEED << ")";
+}
+
+// [Kaori-Chani] Full range, which is mostly the clamp, then the unclamped range alone (plus or
+// minus 8191 steps inclusive), so the rounding is exercised too.
+TEST(SnapshotFormat, VelocityRoundsWithinHalfAStepOverTheSweep)
+{
+	DWORD seed = FORMATTEST_SEED;
+	int bad = 0;
+	const DWORD span = ((DWORD)8191 << 14) * 2 + 1;
+	for (int i = 0; i < FORMATTEST_SAMPLES; ++i)
+	{
+		if (formattest_VelBad(formattest_Sample(seed)))
+			++bad;
+		if (formattest_VelBad((fixed_t)(long long)(formattest_Next(seed) % span)
+			- (fixed_t)(8191 << 14)))
+			++bad;
+	}
+	EXPECT_EQ(0, bad) << bad << " of " << (2 * FORMATTEST_SAMPLES) << " samples (seed 0x"
+		<< std::hex << (unsigned int)FORMATTEST_SEED << ")";
+}
+
+TEST(SnapshotFormat, VelocityRoundsCorrectlyNearZero)
+{
+	EXPECT_EQ(0, QuantVel(-1));
+	EXPECT_EQ(0, QuantVel(1));
+	EXPECT_EQ(0, QuantVel(-(1 << 13)));
+	EXPECT_EQ(1, QuantVel(1 << 13));
+}
+
+// [Kaori-Chani] The cosmetic codec's exact bytes, which pin the wire rather than only its
+// round trip: 8.5 quarters rounds to 9 and -4.5 to -4, and a damage of 300 clamps to 255.
+TEST(SnapshotFormat, TheCosmeticCodecWritesItsExactBytes)
+{
+	BYTE buf[40];
+	bool bBig, bSmall;
+	SnapCosGeneric g;
+	memset(&g, 0, sizeof(g));
+	g.classId = 0x1234;
+	g.x = (5 << FRACBITS) + 123;
+	g.y = -(3 << FRACBITS);
+	g.z = 100 << FRACBITS;
+	g.angle = 0x80000000u;
+	g.vel[0] = 2 * FRACUNIT + FRACUNIT / 8;
+	g.vel[1] = -FRACUNIT - FRACUNIT / 8;
+	g.stateCode = -1;
+	static const BYTE gWant[] = { 0x00, 0x34, 0x12, 0x05, 0x00, 0xFD, 0xFF, 0x64, 0x00,
+		0x80, 0x09, 0xFC, 0x00 };
+	EXPECT_EQ(sizeof(gWant),
+		CosWriteGeneric(buf, FORMATTEST_NARROW, SNAP_COSE_COPY, g, bBig, bSmall));
+	EXPECT_EQ(0, memcmp(buf, gWant, sizeof(gWant)));
+	EXPECT_FALSE(bBig);
+	EXPECT_FALSE(bSmall);
+
+	SnapCosBlood b;
+	b.x = 10 << FRACBITS;
+	b.y = -FRACUNIT;
+	b.z = 0;
+	b.dir = 0x40000000u;
+	b.damage = 300;						// clamps to 255
+	b.originator = 0x0102;
+	static const BYTE bWant[] = { 0x22, 0x0A, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x40, 0xFF,
+		0x02, 0x01 };
+	EXPECT_EQ(sizeof(bWant), CosWriteBlood(buf, FORMATTEST_NARROW,
+		SNAP_COSE_BLOOD | SNAP_COSE_BLOODPLAIN, b));
+	EXPECT_EQ(0, memcmp(buf, bWant, sizeof(bWant)));
+
+	// [Kaori-Chani] A splatter carries no direction or damage.
+	EXPECT_EQ(9u, CosWriteBlood(buf, FORMATTEST_NARROW,
+		SNAP_COSE_SPLATTER | SNAP_COSE_SPLATTER2, b));
+
+	SnapCosBlood rb;
+	SnapCosCursor bcur = { bWant + 1, bWant + sizeof(bWant) };
+	CosReadBlood(bcur, FORMATTEST_NARROW, bWant[0], rb);
+	EXPECT_EQ(bcur.end, bcur.p);
+	EXPECT_EQ(b.x, rb.x);
+	EXPECT_EQ(b.y, rb.y);
+	EXPECT_EQ(b.dir, rb.dir);
+	EXPECT_EQ(255, rb.damage);
+	EXPECT_EQ(0x0102, rb.originator);
+}
+
+// [Kaori-Chani] The longest body, 31 bytes: fine velocity (one axis under a unit, one past 32), a
+// state and all four extras.
+TEST(SnapshotFormat, TheCosmeticCodecRoundTripsItsLongestBody)
+{
+	BYTE buf[40];
+	bool bBig, bSmall;
+	SnapCosGeneric g;
+	memset(&g, 0, sizeof(g));
+	g.classId = 0x1234;
+	g.x = (5 << FRACBITS) + 123;
+	g.y = -(3 << FRACBITS);
+	g.z = 100 << FRACBITS;
+	g.angle = 0x80000000u;
+	g.vel[0] = FRACUNIT / 2;
+	g.vel[1] = -40 * FRACUNIT;
+	g.vel[2] = 100 * FRACUNIT;
+	g.stateCode = 0x3005;
+	g.extras = SNAP_COSX_ACTED | SNAP_COSX_TRANSLATION | SNAP_COSX_ALPHA | SNAP_COSX_SCALE
+		| SNAP_COSX_STYLE;
+	g.transType = 3;
+	g.transIndex = 0x0102;
+	g.alpha = FRACUNIT / 2;
+	g.scaleX = FRACUNIT * 3 / 2;
+	g.scaleY = FRACUNIT / 4;
+	g.style = 0xDEADBEEFu;
+
+	const unsigned int len = CosWriteGeneric(buf, FORMATTEST_NARROW, SNAP_COSE_PLAIN, g,
+		bBig, bSmall);
+	SnapCosGeneric r;
+	SnapCosCursor cur = { buf + 1, buf + len };
+	CosReadGeneric(cur, FORMATTEST_NARROW, buf[0], r);
+	EXPECT_EQ(31u, len);
+	EXPECT_EQ(buf + len, cur.p);
+	EXPECT_TRUE(bBig);
+	EXPECT_TRUE(bSmall);
+	EXPECT_EQ(SNAP_COSE_PLAIN, buf[0] & SNAP_COSE_KIND_MASK);
+	EXPECT_EQ(0x1234, r.classId);
+	EXPECT_EQ(5 << FRACBITS, r.x);
+	EXPECT_EQ(g.y, r.y);
+	EXPECT_EQ(g.z, r.z);
+	EXPECT_EQ(g.angle, r.angle);
+	EXPECT_EQ(g.vel[0], r.vel[0]);
+	EXPECT_EQ(g.vel[1], r.vel[1]);
+	EXPECT_EQ(g.vel[2], r.vel[2]);
+	EXPECT_EQ(0x3005, r.stateCode);
+	EXPECT_EQ(g.extras, r.extras);
+	EXPECT_EQ(3, r.transType);
+	EXPECT_EQ(0x0102, r.transIndex);
+	EXPECT_LE(abs(r.alpha - g.alpha), 257);
+	EXPECT_EQ(g.scaleX, r.scaleX);
+	EXPECT_EQ(g.scaleY, r.scaleY);
+	EXPECT_EQ(g.style, r.style);
+
+	// [Kaori-Chani] One byte short: the read runs past the end, which is how the client finds a
+	// truncated event.
+	SnapCosCursor cut = { buf + 1, buf + len - 1 };
+	CosReadGeneric(cut, FORMATTEST_NARROW, buf[0], r);
+	EXPECT_GT(cut.p, cut.end);
+}
+
+// [Kaori-Chani] Alpha, byte 22, clamps to [0, FRACUNIT] before it scales, so 200.0 is 255 and
+// below zero is 0.
+TEST(SnapshotFormat, TheCosmeticCodecClampsAlphaBeforeItScales)
+{
+	BYTE buf[40];
+	bool bBig, bSmall;
+	SnapCosGeneric g;
+	memset(&g, 0, sizeof(g));
+	g.stateCode = 0x3005;
+	g.extras = SNAP_COSX_ACTED | SNAP_COSX_TRANSLATION | SNAP_COSX_ALPHA | SNAP_COSX_SCALE
+		| SNAP_COSX_STYLE;
+	g.vel[1] = -40 * FRACUNIT;
+
+	g.alpha = 200 * FRACUNIT;
+	CosWriteGeneric(buf, FORMATTEST_NARROW, SNAP_COSE_PLAIN, g, bBig, bSmall);
+	EXPECT_EQ(255, buf[22]);
+
+	g.alpha = -FRACUNIT;
+	CosWriteGeneric(buf, FORMATTEST_NARROW, SNAP_COSE_PLAIN, g, bBig, bSmall);
+	EXPECT_EQ(0, buf[22]);
 }

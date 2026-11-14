@@ -139,7 +139,10 @@ static inline SnapFrame FrameFromExtent(const long long lo[3], const long long h
 // mirror scatters about the true position rather than off to one side.
 static inline SDWORD QuantPosIn(const SnapFrame& f, unsigned int k, fixed_t v)
 {
-	return FrameClamp(f, k, ((long long)v + 0x8000) >> 16);
+	// [Kaori-Chani] Rounded from the floor and the fraction, since adding half a unit to
+	// a 48.16 value near its limit overflows where a 32-bit one could not.
+	const long long raw = (long long)v;
+	return FrameClamp(f, k, (raw >> 16) + (((raw & 0xFFFF) >= 0x8000) ? 1 : 0));
 }
 
 // The same, floored, for the fields that have always floored (`x >> FRACBITS`).
@@ -178,7 +181,9 @@ static inline WORD WirePitch(WORD q) { return (WORD)(q & ~(WORD)3); }
 // nearest in 64 bits, so zero has a symmetric band.
 static inline SWORD QuantVel(fixed_t v)
 {
-	SDWORD q = (SDWORD)(((SQWORD)v + 0x2000) >> 14);
+	// [Kaori-Chani] Rounded from the floor and the fraction, as QuantPosIn is.
+	const SQWORD raw = (SQWORD)v;
+	SDWORD q = (SDWORD)((raw >> 14) + (((raw & 0x3FFF) >= 0x2000) ? 1 : 0));
 	if (q > 8191) q = 8191;
 	if (q < -8192) q = -8192;
 	return (SWORD)q;
@@ -2192,7 +2197,12 @@ static inline unsigned int CosWriteGeneric(BYTE* pOut, const SnapFrame& f, BYTE 
 	else
 	{
 		for (unsigned int k = 0; k < 3; ++k)
-			*p++ = (BYTE)(signed char)CosClamp((long long)((g.vel[k] + (1 << 13)) >> 14), -127, 127);
+		{
+			// [Kaori-Chani] Rounded from the floor and the fraction, as QuantPosIn is.
+			const long long rv = (long long)g.vel[k];
+			*p++ = (BYTE)(signed char)CosClamp((rv >> 14)
+				+ (((rv & 0x3FFF) >= 0x2000) ? 1 : 0), -127, 127);
+		}
 	}
 
 	if (g.stateCode >= 0)
