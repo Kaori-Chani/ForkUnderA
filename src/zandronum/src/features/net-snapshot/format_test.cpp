@@ -1130,3 +1130,235 @@ TEST(SnapshotFormat, TheCosmeticCodecClampsAlphaBeforeItScales)
 	CosWriteGeneric(buf, FORMATTEST_NARROW, SNAP_COSE_PLAIN, g, bBig, bSmall);
 	EXPECT_EQ(0, buf[22]);
 }
+
+//*****************************************************************************
+//	THE ENTRY POINTS THE LAYERS ABOVE CALL
+//
+// These are called by the server, the client and the recorder rather than by
+// anything in the format layer, so nothing above reaches them yet. They are
+// pure, so they are tested here instead of waiting for their callers.
+
+TEST(SnapshotFormat, TheZsnapHeaderCarriesTheFrameFromVersion33)
+{
+	EXPECT_EQ((unsigned int)ZSNAP_HEADER_SIZE, ZsnapHeaderBytes(32));
+	EXPECT_EQ((unsigned int)(ZSNAP_HEADER_SIZE + ZSNAP_HEADER_FRAME), ZsnapHeaderBytes(33));
+	EXPECT_EQ((unsigned int)(ZSNAP_HEADER_SIZE + ZSNAP_HEADER_FRAME),
+		ZsnapHeaderBytes(ZSNAP_VERSION));
+}
+
+// [Kaori-Chani] Each field names its own group, and a pitch moving inside one wire step names
+// none: comparing all ten bits would dirty ANG forever, since the reference holds it truncated.
+TEST(SnapshotFormat, DiffMaskNamesTheGroupEachFieldBelongsTo)
+{
+	SnapEntityState a, b;
+	memset(&a, 0, sizeof(a));
+	memset(&b, 0, sizeof(b));
+	EXPECT_EQ(0, DiffMask(a, b)) << "two identical states differ in nothing";
+
+	b = a; b.qx = 1;          EXPECT_EQ(SNAPGRP_POS, DiffMask(a, b)) << "qx";
+	b = a; b.qy = 1;          EXPECT_EQ(SNAPGRP_POS, DiffMask(a, b)) << "qy";
+	b = a; b.qz = 1;          EXPECT_EQ(SNAPGRP_POSZ, DiffMask(a, b)) << "qz";
+	b = a; b.qangle = 1;      EXPECT_EQ(SNAPGRP_ANG, DiffMask(a, b)) << "qangle";
+	b = a; b.qvx = 1;         EXPECT_EQ(SNAPGRP_VELMISC, DiffMask(a, b)) << "qvx";
+	b = a; b.qvy = 1;         EXPECT_EQ(SNAPGRP_VELMISC, DiffMask(a, b)) << "qvy";
+	b = a; b.qvz = 1;         EXPECT_EQ(SNAPGRP_VELMISC, DiffMask(a, b)) << "qvz";
+	b = a; b.qstate = 1;      EXPECT_EQ(SNAPGRP_APPEAR, DiffMask(a, b)) << "qstate";
+	b = a; b.renderstate = 1; EXPECT_EQ(SNAPGRP_RENDER, DiffMask(a, b)) << "renderstate";
+	b = a; b.misc = 1;        EXPECT_EQ(SNAPGRP_VELMISC, DiffMask(a, b)) << "misc";
+	b = a; b.effects = 1;     EXPECT_EQ(SNAPGRP_VELMISC, DiffMask(a, b)) << "effects";
+
+	b = a; b.qpitch = 1;
+	ASSERT_EQ(WirePitch(a.qpitch), WirePitch(b.qpitch)) << "the two must share one wire step";
+	EXPECT_EQ(0, DiffMask(a, b)) << "a pitch inside one wire step is not a change";
+	b.qpitch = 4;
+	ASSERT_NE(WirePitch(a.qpitch), WirePitch(b.qpitch));
+	EXPECT_EQ(SNAPGRP_ANG, DiffMask(a, b)) << "a pitch across a wire step is";
+}
+
+// [Kaori-Chani] Overlaid through the codec, so only the groups named move, and VELMISC's round
+// trip leaves nothing in misc but the checked bit a captured state never holds.
+TEST(SnapshotFormat, MergeGroupsOverlaysOnlyTheGroupsNamed)
+{
+	const SnapFrame f = FrameNarrow();
+	SnapEntityState src, dst;
+	memset(&src, 0, sizeof(src));
+	memset(&dst, 0, sizeof(dst));
+	src.qx = 120; src.qy = -34; src.qz = 9;
+	src.qangle = 0x0ABC; src.qpitch = 0x154;
+	src.qvx = 5; src.qvy = -6; src.qvz = 7;
+	src.qstate = 0x0333; src.qtics = 4;
+	src.renderstate = 0xDEADBEEF;
+	src.effects = 3;
+	dst.qz = 99;
+	dst.qangle = 0x7000;
+	dst.renderstate = 1;
+
+	MergeGroups(dst, f, src, (BYTE)SNAPGRP_POS);
+	EXPECT_EQ(src.qx, dst.qx);
+	EXPECT_EQ(src.qy, dst.qy);
+	EXPECT_EQ(99, dst.qz) << "POSZ was not named";
+	EXPECT_EQ(0x7000, dst.qangle) << "ANG was not named";
+	EXPECT_EQ(1u, dst.renderstate) << "RENDER was not named";
+
+	MergeGroups(dst, f, src, (BYTE)(SNAPGRP_POSZ | SNAPGRP_RENDER));
+	EXPECT_EQ(src.qz, dst.qz);
+	EXPECT_EQ(src.renderstate, dst.renderstate);
+
+	dst.misc = 0xFFFF;
+	MergeGroups(dst, f, src, (BYTE)SNAPGRP_VELMISC);
+	EXPECT_EQ(src.qvx, dst.qvx);
+	EXPECT_EQ(src.qvy, dst.qvy);
+	EXPECT_EQ(src.qvz, dst.qvz);
+	EXPECT_EQ(0, (WORD)(dst.misc & ~SNAP_MISC_CHECKED)) << "only the checked bit survives";
+}
+
+TEST(SnapshotFormat, ASpriteAndItsFrameShareOneWord)
+{
+	EXPECT_EQ((WORD)((7 << 5) | 3), PackSpriteFrame(7, 3));
+	EXPECT_EQ((WORD)((2047 << 5) | 31), PackSpriteFrame(2047, 31));
+	EXPECT_EQ((WORD)((2047 << 5) | 0), PackSpriteFrame(5000, 32))
+		<< "the sprite clamps at 2047 and the frame takes five bits";
+}
+
+// [Kaori-Chani] Up is negative in BAM, which is the sign the field must keep: this is the pair
+// the widening would have broken, zero-extending a shot into the floor.
+TEST(SnapshotFormat, PitchTakesTenBitsAndComesBackSigned)
+{
+	const fixed_t up = fixed_t::FromSignedBits(0xC0000000u);		// a quarter turn above level
+	const WORD q = QuantPitch(up);
+	EXPECT_LT(DequantPitch(q), 0) << "a pitch above level stays negative";
+	EXPECT_EQ(q, QuantPitch(DequantPitch(q))) << "the field round-trips";
+	EXPECT_EQ(0, QuantPitch(0));
+	EXPECT_EQ(0, DequantPitch(0));
+}
+
+// [Kaori-Chani] The render state packs a translation, a style and an alpha into one DWORD; alpha
+// is eight bits, so it comes back within a step.
+TEST(SnapshotFormat, TheRenderStatePacksAndUnpacks)
+{
+	static const DWORD translations[] = { 0u, 0x0123u, (DWORD)SNAP_RS_TRANS_MASK };
+	for (unsigned int i = 0; i < sizeof(translations) / sizeof(translations[0]); ++i)
+	{
+		const DWORD rs = PackRenderState(translations[i], 5, FRACUNIT / 2);
+		EXPECT_EQ(translations[i], TranslationFromState(rs)) << "translation " << i;
+		EXPECT_EQ(5, StyleIndexFromState(rs)) << "translation " << i;
+		// [Kaori-Chani] Alpha rides in six bits as 1/63rds, so it comes back on its own step
+		// rather than exactly: that step is what this pins, not an invented tolerance.
+		EXPECT_EQ(DequantAlpha(QuantAlpha(FRACUNIT / 2)), AlphaFromState(rs))
+			<< "translation " << i;
+	}
+	// [Kaori-Chani] A translation type rides above the index and survives with it.
+	const DWORD typed = (DWORD)(((DWORD)1 << SNAP_RS_TRANS_SHIFT) | 0x0045u);
+	EXPECT_EQ(typed, TranslationFromState(PackRenderState(typed, 0, 0)));
+}
+
+TEST(SnapshotFormat, EveryStrideOfIdsIsExemptFromAppear)
+{
+	EXPECT_TRUE(AppearExempt(0));
+	EXPECT_TRUE(AppearExempt(SNAP_APPEAR_EXEMPT_STRIDE));
+	EXPECT_TRUE(AppearExempt(2 * SNAP_APPEAR_EXEMPT_STRIDE));
+	EXPECT_FALSE(AppearExempt(1));
+	EXPECT_FALSE(AppearExempt(SNAP_APPEAR_EXEMPT_STRIDE - 1));
+}
+
+// [Kaori-Chani] A width read from a file or a command is refused unless this build encodes it.
+TEST(SnapshotFormat, OnlyTheTwoEncodedWidthsAreKnown)
+{
+	EXPECT_TRUE(FrameWidthKnown(SNAP_FRAME_NARROW));
+	EXPECT_TRUE(FrameWidthKnown(SNAP_FRAME_WIDE));
+	EXPECT_FALSE(FrameWidthKnown(0));
+	EXPECT_FALSE(FrameWidthKnown(1));
+	EXPECT_FALSE(FrameWidthKnown(SNAP_FRAME_WIDE + 1));
+}
+
+// [Kaori-Chani] Four bits from half a unit up: standing reads 0 and fully crouched 0xF, and a
+// value one step off standing cannot read as standing.
+TEST(SnapshotFormat, CrouchTakesFourBitsFromHalfAUnitUp)
+{
+	const int fu = 65536, half = fu / 2;
+	EXPECT_EQ(0, QuantCrouch(fu, fu)) << "standing";
+	EXPECT_EQ(0, QuantCrouch(fu + 1000, fu)) << "past standing";
+	EXPECT_EQ(0xF, QuantCrouch(half, fu)) << "fully crouched";
+	EXPECT_EQ(0xF, QuantCrouch(half - 1000, fu)) << "past fully crouched";
+	EXPECT_EQ(fu, CrouchFromWire(0, fu));
+	EXPECT_EQ(half, CrouchFromWire(0xF, fu));
+	EXPECT_EQ(half, CrouchFromWire(0x10, fu)) << "past the field reads as fully crouched";
+
+	const int step = (fu - half) / 15;
+	EXPECT_NE(0, QuantCrouch(fu - step, fu)) << "one step off standing is not standing";
+	for (WORD q = 1; q < 0xF; ++q)
+		EXPECT_EQ(q, QuantCrouch(CrouchFromWire(q, fu), fu)) << "step " << q;
+}
+
+// [Kaori-Chani] The two bits are read together: ballistic alone is suppressible, steering alone
+// steers, and a missile carrying both is neither.
+TEST(SnapshotFormat, TheMissileBitsAreReadTogether)
+{
+	const WORD both = (WORD)(SNAP_MISC_BALLISTIC | SNAP_MISC_STEERING);
+	EXPECT_TRUE(IsSuppressible(SNAP_MISC_BALLISTIC));
+	EXPECT_FALSE(IsSuppressible(SNAP_MISC_STEERING));
+	EXPECT_FALSE(IsSuppressible(both));
+	EXPECT_FALSE(IsSuppressible(0));
+
+	EXPECT_TRUE(IsSteering(SNAP_MISC_STEERING));
+	EXPECT_FALSE(IsSteering(SNAP_MISC_BALLISTIC));
+	EXPECT_FALSE(IsSteering(both));
+	EXPECT_FALSE(IsSteering(0));
+}
+
+// [Kaori-Chani] Every class is tracked but the animated door, which the reader refuses.
+TEST(SnapshotFormat, EveryMoverClassButTheAnimatedDoorIsTracked)
+{
+	for (unsigned int c = 0; c < SNAPMV_COUNT; ++c)
+		EXPECT_EQ(c != (unsigned int)SNAPMV_ANIMDOOR, MoverClassTracked(c)) << "class " << c;
+	EXPECT_FALSE(MoverClassTracked(SNAPMV_COUNT));
+	EXPECT_FALSE(MoverClassTracked(255));
+}
+
+// [Kaori-Chani] A record's planes are its class's, less the ones its flags say it does not carry.
+TEST(SnapshotFormat, ARecordsPlanesAreItsClassLessWhatItNarrows)
+{
+	for (BYTE c = 0; c < SNAPMV_COUNT; ++c)
+	{
+		const BYTE all = MoverPlanes(c);
+		EXPECT_EQ(all, RecordPlanes(c, 0)) << "class " << (int)c;
+		EXPECT_EQ((BYTE)(all & ~SNAPMV_PLANE_FLOOR), RecordPlanes(c, SNAPMVF_NOFLOOR))
+			<< "class " << (int)c;
+		EXPECT_EQ((BYTE)(all & ~SNAPMV_PLANE_CEILING), RecordPlanes(c, SNAPMVF_NOCEILING))
+			<< "class " << (int)c;
+		EXPECT_EQ((BYTE)(all & ~(SNAPMV_PLANE_FLOOR | SNAPMV_PLANE_CEILING)),
+			RecordPlanes(c, (BYTE)(SNAPMVF_NOFLOOR | SNAPMVF_NOCEILING))) << "class " << (int)c;
+	}
+}
+
+// [Kaori-Chani] One record is its id then its body, which is what the chunk layout sizes.
+TEST(SnapshotFormat, ARecordIsItsIdThenItsBody)
+{
+	const SnapFrame f = FrameNarrow();
+	SnapEntityState e, held;
+	memset(&e, 0, sizeof(e));
+	e.qx = 11; e.qy = -22; e.qz = 3; e.qstate = 7; e.qtics = 2;
+	held = e;
+	held.qx = 99;
+	const BYTE mask = (BYTE)(SNAPGRP_POS | SNAPGRP_POSZ | SNAPGRP_APPEAR);
+
+	BYTE whole[SNAP_MAX_RECORD_BYTES], parts[SNAP_MAX_RECORD_BYTES];
+	SnapIdCursor cw, cp;
+	IdCursorReset(cw);
+	IdCursorReset(cp);
+	const unsigned int n = WriteRecord(whole, f, 4242, cw, mask, 1234, e);
+	unsigned int m = WriteRecordId(parts, 4242, cp);
+	m += WriteRecordBody(parts + m, f, mask, 1234, e);
+	EXPECT_EQ(m, n);
+	EXPECT_EQ(0, memcmp(whole, parts, n));
+
+	// [Kaori-Chani] The held state and the target id reach the body the same way.
+	IdCursorReset(cw);
+	IdCursorReset(cp);
+	const unsigned int nh = WriteRecord(whole, f, 7, cw, (BYTE)(mask | SNAPGRP_ENTER), 1234, e,
+		&held, 55);
+	unsigned int mh = WriteRecordId(parts, 7, cp);
+	mh += WriteRecordBody(parts + mh, f, (BYTE)(mask | SNAPGRP_ENTER), 1234, e, &held, 55);
+	EXPECT_EQ(mh, nh);
+	EXPECT_EQ(0, memcmp(whole, parts, nh));
+}
