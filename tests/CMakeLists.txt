@@ -275,3 +275,47 @@ if(NET_TEST_SOURCES AND NOT EMSCRIPTEN)
   endif()
   gtest_discover_tests(zandrox_tests_net)
 endif()
+
+# [Kaori-Chani] features/net-snapshot's decoder fuzzer. It stays a program of its own rather than
+# a test case: libFuzzer supplies its own main, the seeded mode takes a count, a seed and a corpus
+# folder, and the sanitizers it needs are build flags that would otherwise apply to the whole test
+# binary. It is also what writes ref-wide.csnap, so --wide-reference has to stay buildable here.
+option(ZANDROX_SNAP_FUZZ "Build the snapshot decoder fuzzer (GCC/Clang)" ON)
+option(ZANDROX_SNAP_FUZZ_LIBFUZZER "Build the snapshot fuzzer as a libFuzzer target (Clang)" OFF)
+if(ZANDROX_SNAP_FUZZ AND NOT MSVC)
+  add_executable(snap_fuzz
+    "${CMAKE_CURRENT_SOURCE_DIR}/snapfuzz/fuzz.cpp"
+    "${ENGINE_SRC}/features/net-snapshot/recordread.cpp"
+    "${ENGINE_SRC}/features/net-snapshot/stream.cpp"
+    "${ZX_REPO_ROOT}/deps/zstd/zstd.c")
+  target_include_directories(snap_fuzz PRIVATE "${ENGINE_SRC}" "${ZX_REPO_ROOT}/deps/zstd")
+  # [Kaori-Chani] The vendored zstd is always here, so the .zsnap container is fuzzed as well as
+  # the .csnap one, which the standalone build could only do where it found a system zstd.
+  target_compile_definitions(snap_fuzz PRIVATE SNAP_FUZZ_ZSNAP)
+  # [Kaori-Chani] A finding stops the run with a nonzero exit rather than being reported and
+  # walked past, which is what -fno-sanitize-recover=all is for.
+  if(ZANDROX_SNAP_FUZZ_LIBFUZZER)
+    target_compile_definitions(snap_fuzz PRIVATE SNAP_FUZZ_LIBFUZZER)
+    target_compile_options(snap_fuzz PRIVATE -O1 -g
+      -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all)
+    target_link_options(snap_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
+  else()
+    target_compile_options(snap_fuzz PRIVATE -O1 -g
+      -fsanitize=address,undefined -fno-sanitize-recover=all)
+    target_link_options(snap_fuzz PRIVATE -fsanitize=address,undefined)
+  endif()
+
+  # [Kaori-Chani] Two short deterministic runs on every build, so the fuzzer is exercised rather
+  # than only ever run by hand; the long runs on both widths stay a gate someone runs themselves.
+  if(NOT ZANDROX_SNAP_FUZZ_LIBFUZZER)
+    add_test(NAME snap_fuzz_seeded COMMAND snap_fuzz 20000)
+    # [Kaori-Chani] The generator writes a fresh wide reference and reads it back, so the mode
+    # that makes new wide references is exercised end to end. It is not compared with the
+    # committed ref-wide.csnap: the generator draws one byte at a time from its stream, and a
+    # fixed_t is eight bytes here where it was four in the build that wrote that file, so no
+    # port can reproduce it byte for byte. The committed copy stays the reference, held to its
+    # dump by SnapshotRefDump.TheWideReferenceDecodesByteForByte.
+    add_test(NAME snap_fuzz_wide_reference COMMAND snap_fuzz --wide-reference
+      "${CMAKE_CURRENT_BINARY_DIR}/ref-wide.regenerated.csnap")
+  endif()
+endif()
