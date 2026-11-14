@@ -98,12 +98,28 @@ add_custom_command(OUTPUT "${ZX_GEN_LISTS}"
 # [rc4l] features/sound-decoders: pcmdecode_compute.cpp calls the vendored decoders, built once here as in the engine, with their warnings off.
 set(ZX_SOUND_DECODERS "${ENGINE_SRC}/features/sound-decoders/vendor/decoders_vendor.cpp")
 set_source_files_properties("${ZX_SOUND_DECODERS}" PROPERTIES COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>")
-add_executable(zandrox_tests ${TEST_SOURCES} ${COMPUTE_SOURCES} "${ZX_SOUND_DECODERS}" "${ZX_GEN_LISTS}")
+# [Kaori-Chani] features/net-snapshot: the format layer's two engine-free .cpp files, which the
+# reference decode test reads recordings through. A .zsnap record is a zstd frame, so the vendored
+# single-file zstd is built in beside them as the engine builds it, with its warnings off.
+set(ZX_SNAPSHOT_FORMAT
+  "${ENGINE_SRC}/features/net-snapshot/stream.cpp"
+  "${ENGINE_SRC}/features/net-snapshot/recordread.cpp"
+  "${ZX_REPO_ROOT}/deps/zstd/zstd.c")
+set_source_files_properties("${ZX_REPO_ROOT}/deps/zstd/zstd.c" PROPERTIES
+  COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>")
+add_executable(zandrox_tests ${TEST_SOURCES} ${COMPUTE_SOURCES} "${ZX_SOUND_DECODERS}"
+  ${ZX_SNAPSHOT_FORMAT} "${ZX_GEN_LISTS}")
 # [Doruk-Aksoy] features/database: database_compute.cpp runs its SQL on the engine's own SQLite, built here from the same folder (which downloads it when missing).
 enable_language(C)
 add_subdirectory("${ENGINE_SRC}/../sqlite" "${CMAKE_CURRENT_BINARY_DIR}/sqlite")
-target_include_directories(zandrox_tests PRIVATE "${ENGINE_SRC}" "${ENGINE_SRC}/../sqlite" "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_include_directories(zandrox_tests PRIVATE "${ENGINE_SRC}" "${ENGINE_SRC}/../sqlite"
+  "${ZX_REPO_ROOT}/deps/zstd" "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(zandrox_tests PRIVATE GTest::gtest_main GTest::gmock sqlite3)
+# [Kaori-Chani] The wide snapshot reference ships beside its module, and a dump that differs is
+# written into the build folder, so the whole difference can be taken with any tool.
+target_compile_definitions(zandrox_tests PRIVATE
+  ZX_SNAPSHOT_TESTDATA="${ENGINE_SRC}/features/net-snapshot/testdata"
+  ZX_SNAPSHOT_TESTOUT="${CMAKE_CURRENT_BINARY_DIR}")
 # [rc4l] This target is the portable one -- pure Compute* logic with no engine or platform deps -- so
 # it is the one a Windows dev can actually run before pushing. MSVC rejects -Wextra outright (D8021,
 # a hard error, not a warning), which silently made that impossible; /W4 is its equivalent. The
