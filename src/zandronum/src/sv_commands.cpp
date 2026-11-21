@@ -65,6 +65,7 @@
 #include "r_state.h"
 #include "sbar.h"
 #include "sv_commands.h"
+#include "features/net-snapshot/capture.h"   // [Kaori-Chani] what the snapshot carries instead
 #include "features/net-protocol/lineflags.h"
 #include "features/skywire/computation/sky_wire_compute.h"
 #include "features/hitboxviz/hitboxviz.h"
@@ -1148,6 +1149,10 @@ void SERVERCOMMANDS_MoveLocalPlayer( ULONG ulPlayer )
 	if ( SERVER_IsValidClient( ulPlayer ) == false || players[ulPlayer].mo == NULL )
 		return;
 
+	// [Kaori-Chani] features/net-snapshot: the local block carries this, at its only recipient.
+	if ( zx::netsnapshot::SuppressesLegacyLocal( ulPlayer ))
+		return;
+
 	ServerCommands::MoveLocalPlayer command;
 	command.SetClientTicOnServerEnd( SERVER_GetClient( ulPlayer )->ulClientGameTic );
 	command.SetLatestServerGametic( gametic );
@@ -1165,6 +1170,10 @@ void SERVERCOMMANDS_MoveLocalPlayer( ULONG ulPlayer )
 void SERVERCOMMANDS_SetLocalPlayerJumpTics( ULONG ulPlayer )
 {
 	if ( SERVER_IsValidClient( ulPlayer ) == false )
+		return;
+
+	// [Kaori-Chani] features/net-snapshot: the local block carries this, at its only recipient.
+	if ( zx::netsnapshot::SuppressesLegacyLocal( ulPlayer ))
 		return;
 
 	ServerCommands::SetLocalPlayerJumpTics command;
@@ -1563,6 +1572,10 @@ void SERVERCOMMANDS_SpawnThing( AActor *pActor, ULONG ulPlayerExtra, ServerComma
 	if ( pActor == NULL )
 		return;
 
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	// [rc4l] features/net-session: a thing whole units would move (a dropped clip sat a unit off on every client) spawns exactly.
 	if ( zx::netsession::ComputeSpawnRoundsPosition( pActor->x.Raw(), pActor->y.Raw(), pActor->z.Raw() ))
 		SERVERCOMMANDS_SpawnThingExact( pActor, ulPlayerExtra, flags );
@@ -1611,6 +1624,10 @@ void SERVERCOMMANDS_SpawnThingExact( AActor *pActor, ULONG ulPlayerExtra, Server
 	if ( pActor == NULL )
 		return;
 
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	// If the actor doesn't have a network ID, it's better to send it ID-less.
 	if ( pActor->NetID == 0 )
 	{
@@ -1652,6 +1669,10 @@ void SERVERCOMMANDS_LevelSpawnThing( AActor *pActor, ULONG ulPlayerExtra, Server
 	if ( pActor == NULL )
 		return;
 
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	// If the actor doesn't have a network ID, it's better to send it ID-less.
 	if ( pActor->NetID == 0 )
 	{
@@ -1691,6 +1712,10 @@ void SERVERCOMMANDS_LevelSpawnThingNoNetID( AActor *pActor, ULONG ulPlayerExtra,
  */
 void SERVERCOMMANDS_MoveThingIfChanged( AActor *actor, const MoveThingData &oldData, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the snapshot carries this actor's motion instead.
+	if ( zx::netsnapshot::SuppressesLegacy( actor, SNAPLEGACY_MOTION ))
+		return;
+
 	if ( EnsureActorHasNetID( actor ) )
 	{
 		ULONG bits = 0;
@@ -1731,6 +1756,10 @@ void SERVERCOMMANDS_MoveThingIfChanged( AActor *actor, const MoveThingData &oldD
 //
 void SERVERCOMMANDS_MoveThing( AActor *actor, ULONG bits, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the snapshot carries this actor's motion instead.
+	if ( zx::netsnapshot::SuppressesLegacy( actor, SNAPLEGACY_MOTION ))
+		return;
+
 	if ( !EnsureActorHasNetID (actor) )
 		return;
 
@@ -1820,6 +1849,10 @@ static void MoveThingExactCommand( AActor *actor, ULONG bits, ULONG ulPlayerExtr
 //
 void SERVERCOMMANDS_MoveThingExact( AActor *actor, ULONG bits, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the snapshot carries this actor's motion instead.
+	if ( zx::netsnapshot::SuppressesLegacy( actor, SNAPLEGACY_MOTION ))
+		return;
+
 	MoveThingExactCommand( actor, bits, ulPlayerExtra, flags, true );
 }
 
@@ -1835,6 +1868,10 @@ void SERVERCOMMANDS_MoveThingExactWhole( AActor *actor, ULONG bits )
 //
 void SERVERCOMMANDS_KillThing( AActor *pActor, AActor *pSource, AActor *pInflictor )
 {
+	// [Kaori-Chani] features/net-snapshot: the snapshot carries this actor's animation instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_ANIM ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -1851,6 +1888,10 @@ void SERVERCOMMANDS_KillThing( AActor *pActor, AActor *pSource, AActor *pInflict
 //
 void SERVERCOMMANDS_SetThingState( AActor *pActor, NetworkActorState state, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the snapshot carries this actor's animation instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_ANIM ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -1864,6 +1905,10 @@ void SERVERCOMMANDS_SetThingState( AActor *pActor, NetworkActorState state, ULON
 //
 void SERVERCOMMANDS_SetThingTarget( AActor *pActor )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) || !EnsureActorHasNetID(pActor->target) )
 		return;
 
@@ -1877,6 +1922,10 @@ void SERVERCOMMANDS_SetThingTarget( AActor *pActor )
 //
 void SERVERCOMMANDS_DestroyThing( AActor *pActor )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -1889,6 +1938,10 @@ void SERVERCOMMANDS_DestroyThing( AActor *pActor )
 //
 void SERVERCOMMANDS_SetThingAngle( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the snapshot carries this actor's motion instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_MOTION ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -1902,6 +1955,10 @@ void SERVERCOMMANDS_SetThingAngle( AActor *pActor, ULONG ulPlayerExtra, ServerCo
 //
 void SERVERCOMMANDS_SetThingAngleExact( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the snapshot carries this actor's motion instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_MOTION ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -1915,6 +1972,10 @@ void SERVERCOMMANDS_SetThingAngleExact( AActor *pActor, ULONG ulPlayerExtra, Ser
 //
 void SERVERCOMMANDS_SetThingWaterLevel( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -1928,6 +1989,10 @@ void SERVERCOMMANDS_SetThingWaterLevel( AActor *pActor, ULONG ulPlayerExtra, Ser
 //
 void SERVERCOMMANDS_SetThingFlags( AActor *pActor, FlagSet flagset, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2013,6 +2078,10 @@ void SERVERCOMMANDS_UpdateThingFlagsNotAtDefaults( AActor *pActor, ULONG ulPlaye
 //
 void SERVERCOMMANDS_SetThingArguments( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2030,6 +2099,10 @@ void SERVERCOMMANDS_SetThingArguments( AActor *pActor, ULONG ulPlayerExtra, Serv
 //
 void SERVERCOMMANDS_SetThingTranslation( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2043,6 +2116,10 @@ void SERVERCOMMANDS_SetThingTranslation( AActor *pActor, ULONG ulPlayerExtra, Se
 //
 void SERVERCOMMANDS_SetThingProperty( AActor *pActor, ULONG ulProperty, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2103,6 +2180,10 @@ void SERVERCOMMANDS_SetThingProperty( AActor *pActor, ULONG ulProperty, ULONG ul
 //
 void SERVERCOMMANDS_SetThingStringProperty( AActor *pActor, ULONG ulProperty, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2134,6 +2215,10 @@ void SERVERCOMMANDS_SetThingStringProperty( AActor *pActor, ULONG ulProperty, UL
 //
 void SERVERCOMMANDS_SetThingSound( AActor *pActor, ULONG ulSound, const char *pszSound, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE) )
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2148,6 +2233,10 @@ void SERVERCOMMANDS_SetThingSound( AActor *pActor, ULONG ulSound, const char *ps
 //
 void SERVERCOMMANDS_SetThingSpawnPoint( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2163,6 +2252,10 @@ void SERVERCOMMANDS_SetThingSpawnPoint( AActor *pActor, ULONG ulPlayerExtra, Ser
 //
 void SERVERCOMMANDS_SetThingSpecial( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2176,6 +2269,10 @@ void SERVERCOMMANDS_SetThingSpecial( AActor *pActor, ULONG ulPlayerExtra, Server
 //
 void SERVERCOMMANDS_SetThingSpecial1( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2189,6 +2286,10 @@ void SERVERCOMMANDS_SetThingSpecial1( AActor *pActor, ULONG ulPlayerExtra, Serve
 //
 void SERVERCOMMANDS_SetThingSpecial2( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2202,6 +2303,10 @@ void SERVERCOMMANDS_SetThingSpecial2( AActor *pActor, ULONG ulPlayerExtra, Serve
 //
 void SERVERCOMMANDS_SetThingTics( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2215,6 +2320,10 @@ void SERVERCOMMANDS_SetThingTics( AActor *pActor, ULONG ulPlayerExtra, ServerCom
 //
 void SERVERCOMMANDS_SetThingReactionTime( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2228,6 +2337,10 @@ void SERVERCOMMANDS_SetThingReactionTime( AActor *pActor, ULONG ulPlayerExtra, S
 //
 void SERVERCOMMANDS_SetThingTID( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2241,6 +2354,10 @@ void SERVERCOMMANDS_SetThingTID( AActor *pActor, ULONG ulPlayerExtra, ServerComm
 //
 void SERVERCOMMANDS_SetThingGravity( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2254,6 +2371,10 @@ void SERVERCOMMANDS_SetThingGravity( AActor *pActor, ULONG ulPlayerExtra, Server
 //
 void SERVERCOMMANDS_SetThingFrame( AActor *pActor, FState *pState, ULONG ulPlayerExtra, ServerCommandFlags flags, bool bCallStateFunction )
 {
+	// [Kaori-Chani] features/net-snapshot: the snapshot carries this actor's animation instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_ANIM ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) || (pState == NULL) )
 		return;
 
@@ -2332,6 +2453,10 @@ void SERVERCOMMANDS_SetWeaponAmmoGive( AActor *pActor, ULONG ulPlayerExtra, Serv
 //
 void SERVERCOMMANDS_ThingIsCorpse( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the snapshot carries this actor's animation instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_ANIM ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2345,6 +2470,10 @@ void SERVERCOMMANDS_ThingIsCorpse( AActor *pActor, ULONG ulPlayerExtra, ServerCo
 //
 void SERVERCOMMANDS_HideThing( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	// [BB] The client will call HideIndefinitely on the actor, which only is possible on AInventory and descendants.
 	if ( !EnsureActorHasNetID (pActor) || !(pActor->IsKindOf( RUNTIME_CLASS( AInventory ))) )
 		return;
@@ -2358,6 +2487,10 @@ void SERVERCOMMANDS_HideThing( AActor *pActor, ULONG ulPlayerExtra, ServerComman
 //
 void SERVERCOMMANDS_TeleportThing( AActor *pActor, bool bSourceFog, bool bDestFog, bool bTeleZoom, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2407,6 +2540,10 @@ void SERVERCOMMANDS_ThingDeactivate( AActor *pActor, AActor *pActivator, ULONG u
 //
 void SERVERCOMMANDS_RespawnDoomThing( AActor *pActor, bool bFog, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2420,6 +2557,10 @@ void SERVERCOMMANDS_RespawnDoomThing( AActor *pActor, bool bFog, ULONG ulPlayerE
 //
 void SERVERCOMMANDS_RespawnRavenThing( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the snapshot carries this actor's animation instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_ANIM ))
+		return;
+
 	if ( !EnsureActorHasNetID (pActor) )
 		return;
 
@@ -2478,6 +2619,10 @@ void SERVERCOMMANDS_SpawnBloodSplatter( fixed_t x, fixed_t y, fixed_t z, AActor 
 // by the client. It differs a lot from SpawnPuffNoNetID.
 void SERVERCOMMANDS_SpawnPuff( AActor *pActor, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( pActor == NULL )
 		return;
 
@@ -3005,6 +3150,10 @@ void SERVERCOMMANDS_SpawnMissile( AActor *pMissile, ULONG ulPlayerExtra, ServerC
 	if ( pMissile == NULL )
 		return;
 
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pMissile, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	// [AK] If the missile is serversided only, don't tell the clients to spawn it.
 	if ( pMissile->NetworkFlags & NETFL_SERVERSIDEONLY )
 		return;
@@ -3039,6 +3188,10 @@ void SERVERCOMMANDS_SpawnMissileExact( AActor *pMissile, ULONG ulPlayerExtra, Se
 	if ( pMissile == NULL )
 		return;
 
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pMissile, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	// [AK] If the missile is serversided only, don't tell the clients to spawn it.
 	if ( pMissile->NetworkFlags & NETFL_SERVERSIDEONLY )
 		return;
@@ -3070,6 +3223,10 @@ void SERVERCOMMANDS_SpawnMissileExact( AActor *pMissile, ULONG ulPlayerExtra, Se
 //
 void SERVERCOMMANDS_MissileExplode( AActor *pMissile, line_t *pLine, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the snapshot carries this actor's animation instead.
+	if ( zx::netsnapshot::SuppressesLegacy( pMissile, SNAPLEGACY_ANIM ))
+		return;
+
 	if ( !EnsureActorHasNetID (pMissile) )
 		return;
 
@@ -4343,6 +4500,10 @@ void SERVERCOMMANDS_SyncHexenArmorSlots( ULONG ulPlayer, ULONG ulPlayerExtra, Se
 // [Dusk]
 void SERVERCOMMANDS_SetFastChaseStrafeCount( AActor *mobj, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( mobj, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (mobj) )
 		return;
 
@@ -4361,6 +4522,10 @@ void SERVERCOMMANDS_SetFastChaseStrafeCount( AActor *mobj, ULONG ulPlayerExtra, 
 //
 void SERVERCOMMANDS_SetThingHealth( AActor* mobj, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( mobj, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (mobj) )
 		return;
 
@@ -4375,6 +4540,10 @@ void SERVERCOMMANDS_SetThingHealth( AActor* mobj, ULONG ulPlayerExtra, ServerCom
 //
 void SERVERCOMMANDS_SetThingScale( AActor* mobj, unsigned int scaleFlags, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( mobj, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (mobj) )
 		return;
 
@@ -4418,6 +4587,10 @@ void SERVERCOMMANDS_SetThingSpriteOrientation( AActor *mobj, unsigned int orient
 // [RK]
 void SERVERCOMMANDS_SetThingFloorClip( AActor* mobj, unsigned int playerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if ( zx::netsnapshot::SuppressesLegacy( mobj, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( !EnsureActorHasNetID (mobj) )
 		return;
 
@@ -4539,6 +4712,10 @@ void SERVERCOMMANDS_UpdateThingSizeNotAtDefault( AActor* pActor, ULONG ulPlayerE
 //
 void SERVERCOMMANDS_FlashStealthMonster( AActor* pActor, SBYTE direction, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: not sent for an actor the snapshot carries instead.
+	if( zx::netsnapshot::SuppressesLegacy( pActor, SNAPLEGACY_EXISTENCE ))
+		return;
+
 	if ( EnsureActorHasNetID( pActor ) == false )
 		return;
 
@@ -4627,6 +4804,10 @@ void SERVERCOMMANDS_PlayBounceSound( const AActor *pActor, const bool bOnfloor, 
 //
 void SERVERCOMMANDS_DoDoor( sector_t *pSector, DDoor::EVlDoor type, LONG lSpeed, LONG lDirection, LONG lLightTag, LONG lID, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_DOOR ))
+		return;
+
 	LONG	lSectorID;
 
 	lSectorID = LONG( pSector - sectors );
@@ -4653,6 +4834,10 @@ void SERVERCOMMANDS_DoDoor( sector_t *pSector, DDoor::EVlDoor type, LONG lSpeed,
 //
 void SERVERCOMMANDS_DestroyDoor( LONG lID, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_DOOR ))
+		return;
+
 	NetCommand command ( SVC_DESTROYDOOR );
 	command.addShort ( lID );
 	command.sendCommandToClients ( ulPlayerExtra, flags );
@@ -4662,6 +4847,10 @@ void SERVERCOMMANDS_DestroyDoor( LONG lID, ULONG ulPlayerExtra, ServerCommandFla
 //
 void SERVERCOMMANDS_ChangeDoorDirection( LONG lID, LONG lDirection, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_DOOR ))
+		return;
+
 	// Since we still want to send direction as a byte, but -1 can't be represented in byte
 	// form, adjust the value into something that can be represented.
 	lDirection = SERVER_AdjustDoorDirection( lDirection );
@@ -4675,10 +4864,53 @@ void SERVERCOMMANDS_ChangeDoorDirection( LONG lID, LONG lDirection, ULONG ulPlay
 }
 
 //*****************************************************************************
+// [Kaori-Chani] features/net-snapshot: keyed on the sector, a gated client having no
+// door of its own until a record reaches it.
+void SERVERCOMMANDS_DoorSound( sector_t *pSector, int choice, bool bCheckSequence, ULONG ulPlayerExtra, ServerCommandFlags flags )
+{
+	NetCommand command ( SVC2_DOORSOUND );
+	command.addShort ( pSector - sectors );
+	command.addByte (( choice & 3 ) | ( bCheckSequence ? 4 : 0 ));
+	command.sendCommandToClients ( ulPlayerExtra, flags );
+}
+
+//*****************************************************************************
+// [Kaori-Chani] features/net-snapshot: keyed on the sector, for the classes whose own sound
+// command is keyed on the mover a gated client does not have yet.
+void SERVERCOMMANDS_MoverSound( sector_t *pSector, int packed, ULONG ulPlayerExtra, ServerCommandFlags flags )
+{
+	LONG lSectorID = LONG( pSector - sectors );
+	if (( lSectorID < 0 ) || ( lSectorID >= numsectors ))
+		return;
+
+	NetCommand command ( SVC2_MOVERSOUND );
+	command.addShort ( lSectorID );
+	command.addByte ( packed );
+	command.sendCommandToClients ( ulPlayerExtra, flags );
+}
+
+//*****************************************************************************
+// [Kaori-Chani] features/net-snapshot: keyed on the sector, a gated client having no floor of
+// its own until a record makes it.
+void SERVERCOMMANDS_FloorSound( sector_t *pSector, ULONG ulPlayerExtra, ServerCommandFlags flags )
+{
+	LONG lSectorID = LONG( pSector - sectors );
+	if (( lSectorID < 0 ) || ( lSectorID >= numsectors ))
+		return;
+
+	NetCommand command ( SVC2_FLOORSOUND );
+	command.addShort ( lSectorID );
+	command.sendCommandToClients ( ulPlayerExtra, flags );
+}
+
 //*****************************************************************************
 //
 void SERVERCOMMANDS_DoFloor( DFloor::EFloor Type, sector_t *pSector, LONG lDirection, LONG lSpeed, LONG lFloorDestDist, LONG Crush, bool Hexencrush, LONG lID, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_FLOOR ))
+		return;
+
 	LONG	lSectorID;
 
 	lSectorID = LONG( pSector - sectors );
@@ -4707,6 +4939,10 @@ void SERVERCOMMANDS_DoFloor( DFloor::EFloor Type, sector_t *pSector, LONG lDirec
 //
 void SERVERCOMMANDS_DestroyFloor( LONG lID, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_FLOOR ))
+		return;
+
 	NetCommand command ( SVC_DESTROYFLOOR );
 	command.addShort ( lID );
 	command.sendCommandToClients ( ulPlayerExtra, flags );
@@ -4716,6 +4952,10 @@ void SERVERCOMMANDS_DestroyFloor( LONG lID, ULONG ulPlayerExtra, ServerCommandFl
 //
 void SERVERCOMMANDS_ChangeFloorDirection( LONG lID, LONG lDirection, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_FLOOR ))
+		return;
+
 	// Since we still want to send direction as a byte, but -1 can't be represented in byte
 	// form, adjust the value into something that can be represented.
 	lDirection = SERVER_AdjustFloorDirection( lDirection );
@@ -4732,6 +4972,10 @@ void SERVERCOMMANDS_ChangeFloorDirection( LONG lID, LONG lDirection, ULONG ulPla
 //
 void SERVERCOMMANDS_ChangeFloorType( LONG lID, DFloor::EFloor Type, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_FLOOR ))
+		return;
+
 	NetCommand command ( SVC_CHANGEFLOORTYPE );
 	command.addShort ( lID );
 	command.addByte ( (ULONG)Type );
@@ -4742,6 +4986,10 @@ void SERVERCOMMANDS_ChangeFloorType( LONG lID, DFloor::EFloor Type, ULONG ulPlay
 //
 void SERVERCOMMANDS_ChangeFloorDestDist( LONG lID, LONG lFloorDestDist, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_FLOOR ))
+		return;
+
 	NetCommand command ( SVC_CHANGEFLOORDESTDIST );
 	command.addShort ( lID );
 	command.addLong ( lFloorDestDist );
@@ -4761,6 +5009,10 @@ void SERVERCOMMANDS_StartFloorSound( LONG lID, ULONG ulPlayerExtra, ServerComman
 //
 void SERVERCOMMANDS_BuildStair( DFloor::EFloor Type, sector_t *pSector, int Direction, fixed_t Speed, fixed_t FloorDestDist, int Crush, bool Hexencrush, int ResetCount, int Delay, int PauseTime, int StepTime, int PerStepTime, int ID, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_FLOOR ))
+		return;
+
 	int		SectorID;
 
 	SectorID = int( pSector - sectors );
@@ -4789,6 +5041,10 @@ void SERVERCOMMANDS_BuildStair( DFloor::EFloor Type, sector_t *pSector, int Dire
 //
 void SERVERCOMMANDS_DoCeiling( DCeiling::ECeiling Type, sector_t *pSector, LONG lDirection, LONG lBottomHeight, LONG lTopHeight, LONG lSpeed, LONG lCrush, bool Hexencrush, LONG lSilent, LONG lID, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_CEILING ))
+		return;
+
 	LONG	lSectorID;
 
 	lSectorID = LONG( pSector - sectors );
@@ -4819,6 +5075,10 @@ void SERVERCOMMANDS_DoCeiling( DCeiling::ECeiling Type, sector_t *pSector, LONG 
 //
 void SERVERCOMMANDS_DestroyCeiling( LONG lID, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_CEILING ))
+		return;
+
 	NetCommand command ( SVC_DESTROYCEILING );
 	command.addShort ( lID );
 	command.sendCommandToClients ( ulPlayerExtra, flags );
@@ -4828,6 +5088,10 @@ void SERVERCOMMANDS_DestroyCeiling( LONG lID, ULONG ulPlayerExtra, ServerCommand
 //
 void SERVERCOMMANDS_ChangeCeilingDirection( LONG lID, LONG lDirection, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_CEILING ))
+		return;
+
 	// Since we still want to send direction as a byte, but -1 can't be represented in byte
 	// form, adjust the value into something that can be represented.
 	lDirection = SERVER_AdjustCeilingDirection( lDirection );
@@ -4844,6 +5108,10 @@ void SERVERCOMMANDS_ChangeCeilingDirection( LONG lID, LONG lDirection, ULONG ulP
 //
 void SERVERCOMMANDS_ChangeCeilingSpeed( LONG lID, LONG lSpeed, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_CEILING ))
+		return;
+
 	NetCommand command ( SVC_CHANGECEILINGSPEED );
 	command.addShort ( lID );
 	command.addLong ( lSpeed );
@@ -4864,6 +5132,10 @@ void SERVERCOMMANDS_PlayCeilingSound( LONG lID, ULONG ulPlayerExtra, ServerComma
 //
 void SERVERCOMMANDS_DoPlat( DPlat::EPlatType Type, sector_t *pSector, DPlat::EPlatState Status, LONG lHigh, LONG lLow, LONG lSpeed, LONG lID, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_PLAT ))
+		return;
+
 	LONG	lSectorID;
 
 	lSectorID = LONG( pSector - sectors );
@@ -4885,6 +5157,10 @@ void SERVERCOMMANDS_DoPlat( DPlat::EPlatType Type, sector_t *pSector, DPlat::EPl
 //
 void SERVERCOMMANDS_DestroyPlat( LONG lID, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_PLAT ))
+		return;
+
 	NetCommand command ( SVC_DESTROYPLAT );
 	command.addShort ( lID );
 	command.sendCommandToClients ( ulPlayerExtra, flags );
@@ -4894,6 +5170,10 @@ void SERVERCOMMANDS_DestroyPlat( LONG lID, ULONG ulPlayerExtra, ServerCommandFla
 //
 void SERVERCOMMANDS_ChangePlatStatus( LONG lID, DPlat::EPlatState Status, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_PLAT ))
+		return;
+
 	NetCommand command ( SVC_CHANGEPLATSTATUS );
 	command.addShort ( lID );
 	command.addByte ( (ULONG)Status );
@@ -4915,6 +5195,10 @@ void SERVERCOMMANDS_PlayPlatSound( LONG lID, LONG lSound, ULONG ulPlayerExtra, S
 //
 void SERVERCOMMANDS_DoElevator( DElevator::EElevator Type, sector_t *pSector, LONG lSpeed, LONG lDirection, LONG lFloorDestDist, LONG lCeilingDestDist, LONG lID, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_ELEVATOR ))
+		return;
+
 	LONG	lSectorID;
 
 	lSectorID = LONG( pSector - sectors );
@@ -4942,6 +5226,10 @@ void SERVERCOMMANDS_DoElevator( DElevator::EElevator Type, sector_t *pSector, LO
 //
 void SERVERCOMMANDS_DestroyElevator( LONG lID, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_ELEVATOR ))
+		return;
+
 	NetCommand command ( SVC_DESTROYELEVATOR );
 	command.addShort ( lID );
 	command.sendCommandToClients ( ulPlayerExtra, flags );
@@ -4961,6 +5249,10 @@ void SERVERCOMMANDS_StartElevatorSound( LONG lID, ULONG ulPlayerExtra, ServerCom
 //
 void SERVERCOMMANDS_DoPillar( DPillar::EPillar Type, sector_t *pSector, LONG lFloorSpeed, LONG lCeilingSpeed, LONG lFloorTarget, LONG lCeilingTarget, LONG Crush, bool Hexencrush, LONG lID, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_PILLAR ))
+		return;
+
 	LONG	lSectorID;
 
 	lSectorID = LONG( pSector - sectors );
@@ -4984,6 +5276,10 @@ void SERVERCOMMANDS_DoPillar( DPillar::EPillar Type, sector_t *pSector, LONG lFl
 //
 void SERVERCOMMANDS_DestroyPillar( LONG lID, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_PILLAR ))
+		return;
+
 	NetCommand command ( SVC_DESTROYPILLAR );
 	command.addShort ( lID );
 	command.sendCommandToClients ( ulPlayerExtra, flags );
@@ -5040,6 +5336,10 @@ void SERVERCOMMANDS_UpdateWaggle( LONG lID, LONG lAccumulator, ULONG ulPlayerExt
 //
 void SERVERCOMMANDS_DoRotatePoly( LONG lSpeed, LONG lPolyNum, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_POLY ))
+		return;
+
 	NetCommand command ( SVC_DOROTATEPOLY );
 	command.addLong ( lSpeed );
 	command.addShort ( lPolyNum );
@@ -5050,6 +5350,10 @@ void SERVERCOMMANDS_DoRotatePoly( LONG lSpeed, LONG lPolyNum, ULONG ulPlayerExtr
 //
 void SERVERCOMMANDS_DestroyRotatePoly( LONG lPolyNum, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_POLY ))
+		return;
+
 	NetCommand command ( SVC_DESTROYROTATEPOLY );
 	command.addShort ( lPolyNum );
 	command.sendCommandToClients ( ulPlayerExtra, flags );
@@ -5060,6 +5364,10 @@ void SERVERCOMMANDS_DestroyRotatePoly( LONG lPolyNum, ULONG ulPlayerExtra, Serve
 //
 void SERVERCOMMANDS_DoMovePoly( LONG lXSpeed, LONG lYSpeed, LONG lPolyNum, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_POLY ))
+		return;
+
 	NetCommand command ( SVC_DOMOVEPOLY );
 	command.addLong ( lXSpeed );
 	command.addLong ( lYSpeed );
@@ -5071,6 +5379,10 @@ void SERVERCOMMANDS_DoMovePoly( LONG lXSpeed, LONG lYSpeed, LONG lPolyNum, ULONG
 //
 void SERVERCOMMANDS_DestroyMovePoly( LONG lPolyNum, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_POLY ))
+		return;
+
 	NetCommand command ( SVC_DESTROYMOVEPOLY );
 	command.addShort ( lPolyNum );
 	command.sendCommandToClients ( ulPlayerExtra, flags );
@@ -5081,6 +5393,10 @@ void SERVERCOMMANDS_DestroyMovePoly( LONG lPolyNum, ULONG ulPlayerExtra, ServerC
 //
 void SERVERCOMMANDS_DoPolyDoor( LONG lType, LONG lXSpeed, LONG lYSpeed, LONG lSpeed, LONG lPolyNum, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_POLY ))
+		return;
+
 	NetCommand command ( SVC_DOPOLYDOOR );
 	command.addByte ( lType );
 	command.addLong ( lXSpeed );
@@ -5094,6 +5410,10 @@ void SERVERCOMMANDS_DoPolyDoor( LONG lType, LONG lXSpeed, LONG lYSpeed, LONG lSp
 //
 void SERVERCOMMANDS_DestroyPolyDoor( LONG lPolyNum, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_POLY ))
+		return;
+
 	NetCommand command ( SVC_DESTROYPOLYDOOR );
 	command.addShort ( lPolyNum );
 	command.sendCommandToClients ( ulPlayerExtra, flags );
@@ -5103,6 +5423,10 @@ void SERVERCOMMANDS_DestroyPolyDoor( LONG lPolyNum, ULONG ulPlayerExtra, ServerC
 //
 void SERVERCOMMANDS_SetPolyDoorSpeedPosition( LONG lPolyNum, LONG lXSpeed, LONG lYSpeed, LONG lX, LONG lY, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_POLY ))
+		return;
+
 	NetCommand command ( SVC_SETPOLYDOORSPEEDPOSITION );
 	command.addShort ( lPolyNum );
 	command.addLong ( lXSpeed );
@@ -5116,6 +5440,10 @@ void SERVERCOMMANDS_SetPolyDoorSpeedPosition( LONG lPolyNum, LONG lXSpeed, LONG 
 //
 void SERVERCOMMANDS_SetPolyDoorSpeedRotation( LONG lPolyNum, LONG lSpeed, LONG lAngle, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
+	// [Kaori-Chani] features/net-snapshot: the records carry this class under the gate.
+	if ( zx::netsnapshot::MoverServerStops( SNAPMV_POLY ))
+		return;
+
 	NetCommand command ( SVC_SETPOLYDOORSPEEDROTATION );
 	command.addShort ( lPolyNum );
 	command.addLong ( lSpeed );
@@ -5757,4 +6085,81 @@ void APathFollower::SyncWithClient ( const ULONG ulClient )
 	command.addShort( this->PrevNode ? this->PrevNode->NetID : 0 );
 	command.addFloat( this->Time );
 	command.sendCommandToOneClient( ulClient );
+}
+
+//*****************************************************************************
+//
+// [Kaori-Chani] features/net-snapshot: the reset count is the last one DestroyAllSectorMovers
+// carried, so a client joining while that send is deferred waits for it.
+void SERVERCOMMANDS_SnapJoin( ULONG ulPlayerExtra, ServerCommandFlags flags )
+{
+	// A gate-off server sends the legacy protocol and nothing else.
+	if ( zx::netsnapshot::GateOn( ) == false )
+		return;
+
+	ServerCommands::SnapJoin command;
+	command.SetMapStamp( zx::netsnapshot::MapStamp( ));
+	command.SetResetCount( zx::netsnapshot::MapResetCountSent( ));
+	const SnapFrame &frame = zx::netsnapshot::ServerMapFrame( );
+	command.SetOriginX( frame.origin[0] );
+	command.SetOriginY( frame.origin[1] );
+	command.SetOriginZ( frame.origin[2] );
+	command.SetWidthX( frame.width[0] );
+	command.SetWidthY( frame.width[1] );
+	command.SetWidthZ( frame.width[2] );
+	command.sendCommandToClients( ulPlayerExtra, flags );
+}
+
+//*****************************************************************************
+//
+// [Kaori-Chani] features/net-snapshot: tells the clients whether the legacy mover state commands
+// have stopped, frame carrying the record floor of a mid-session gate-off and 0 otherwise.
+void SERVERCOMMANDS_SnapMoverGate( bool bLegacyOff, int frame, ULONG ulPlayerExtra, ServerCommandFlags flags )
+{
+	ServerCommands::SnapMoverGate command;
+	command.SetLegacyOff( bLegacyOff );
+	command.SetFrame( frame );
+	command.sendCommandToClients( ulPlayerExtra, flags );
+}
+
+//*****************************************************************************
+//
+// [Kaori-Chani] features/net-snapshot: the module decides whether to send it at all.
+void SERVERCOMMANDS_SnapMapReset( int resetCount, ULONG ulPlayerExtra,
+	ServerCommandFlags flags )
+{
+	ServerCommands::SnapMapReset command;
+	command.SetResetCount( resetCount );
+	command.sendCommandToClients( ulPlayerExtra, flags );
+}
+
+//*****************************************************************************
+//
+// [Kaori-Chani] features/net-snapshot: the module decides the chunk and whether to send
+// at all; this only puts it on the wire.
+void SERVERCOMMANDS_SnapSpecialState( int firstScroller,
+	const TArray<struct ServerCommands::SnapScrollerState> &scrollers,
+	int firstPusher,
+	const TArray<struct ServerCommands::SnapPusherState> &pushers,
+	ULONG ulPlayerExtra, ServerCommandFlags flags )
+{
+	ServerCommands::SnapSpecialState command;
+	command.SetFirstScroller( firstScroller );
+	command.SetScrollers( scrollers );
+	command.SetFirstPusher( firstPusher );
+	command.SetPushers( pushers );
+	command.sendCommandToClients( ulPlayerExtra, flags );
+}
+
+//*****************************************************************************
+//
+// [Kaori-Chani] features/net-snapshot: a body that held the id reserved for its player has moved
+// to newID, told before anything else refers to it.
+//
+void SERVERCOMMANDS_SetThingNetID( unsigned short oldID, unsigned short newID )
+{
+	ServerCommands::SetThingNetID command;
+	command.SetOldID( oldID );
+	command.SetNewID( newID );
+	command.sendCommandToClients();
 }

@@ -41,6 +41,8 @@
 #include "farchive.h"
 // [BB] New #includes.
 #include "cl_demo.h"
+#include "features/net-snapshot/movers.h"	// [Kaori-Chani] the capture and its holds
+#include "features/net-snapshot/capture.h"	// [Kaori-Chani] MoverServerStops
 #include "network.h"
 #include "sv_commands.h"
 #include "features/net-replication/mapstate.h"
@@ -90,6 +92,9 @@ void DDoor::Tick ()
 {
 	EResult res;
 
+	// [Kaori-Chani] features/net-snapshot: the state this tic starts in.
+	SnapCapture( );
+
 	if (m_Sector->floorplane.d != m_OldFloorDist)
 	{
 		if (!m_Sector->floordata || !m_Sector->floordata->IsKindOf(RUNTIME_CLASS(DPlat)) ||
@@ -108,8 +113,11 @@ void DDoor::Tick ()
 		// de-sync the game. Instead, wait for the server to tell us to change
 		// the door's direction.
 		// [EP] Don't let the clients read the undefined m_TopCountdown variable
-		if ( NETWORK_InClientMode() )
+		// [Kaori-Chani] features/net-snapshot: unless a record has reached this door, which
+		// carries the countdown it is reading; with the gate off that is never true.
+		if ( zx::netsnapshot::MoverClientSkipsWait( m_SnapSeen ))
 			break;
+		zx::netsnapshot::MoverCountDoorWait( m_TopCountdown == 1 );
 
 		// WAITING
 		if (!--m_TopCountdown)
@@ -118,7 +126,10 @@ void DDoor::Tick ()
 			{
 			case doorRaise:
 				m_Direction = -1; // time to go back down
-				DoorSound (false);
+				// [Kaori-Chani] features/net-snapshot: the server sends this sound, so a
+				// client that counted the wait out itself does not also play it.
+				if ( zx::netsnapshot::MoverPlaysWaitSound( ))
+					DoorSound (false);
 
 				// [BC] If we're the server, tell clients to change the door's direction.
 				if ( NETWORK_GetState( ) == NETSTATE_SERVER )
@@ -128,7 +139,9 @@ void DDoor::Tick ()
 				
 			case doorCloseWaitOpen:
 				m_Direction = 1;
-				DoorSound (true);
+				// [Kaori-Chani] features/net-snapshot: as above.
+				if ( zx::netsnapshot::MoverPlaysWaitSound( ))
+					DoorSound (true);
 
 				// [BC] If we're the server, tell clients to change the door's direction.
 				if ( NETWORK_GetState( ) == NETSTATE_SERVER )
@@ -174,7 +187,11 @@ void DDoor::Tick ()
 		
 	case -1:
 		// DOWN
+		// [Kaori-Chani] features/net-snapshot: a plane the server says stalled stays put.
+		if ( zx::netsnapshot::MoverHoldsPlane( m_SnapBlocked ))
+			break;
 		res = MoveCeiling (m_Speed, m_BotDist, -1, m_Direction, false);
+		m_SnapBlocked = zx::netsnapshot::MoverPlaneStalled( m_SnapBlocked, res == crushed );
 
 		// killough 10/98: implement gradual lighting effects
 		if (m_LightTag != 0 && m_TopDist != -m_Sector->floorplane.d)
@@ -194,10 +211,14 @@ void DDoor::Tick ()
 			// have the correct floor/ceiling height for this sector.
 			if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 			{
-				if ( m_Sector->floorOrCeiling == 0 )
-					SERVERCOMMANDS_SetSectorFloorPlane( m_Sector - sectors );
-				else
-					SERVERCOMMANDS_SetSectorCeilingPlane( m_Sector - sectors );
+				// [Kaori-Chani] features/net-snapshot: a record writes this plane.
+				if ( zx::netsnapshot::MoverServerStops( SNAPMV_DOOR, true ) == false )
+				{
+					if ( m_Sector->floorOrCeiling == 0 )
+						SERVERCOMMANDS_SetSectorFloorPlane( m_Sector - sectors );
+					else
+						SERVERCOMMANDS_SetSectorCeilingPlane( m_Sector - sectors );
+				}
 
 				// Tell clients to stop the floor's sound sequence.
 				SERVERCOMMANDS_StopSectorSequence( m_Sector );
@@ -253,7 +274,11 @@ void DDoor::Tick ()
 		
 	case 1:
 		// UP
+		// [Kaori-Chani] features/net-snapshot: as going down.
+		if ( zx::netsnapshot::MoverHoldsPlane( m_SnapBlocked ))
+			break;
 		res = MoveCeiling (m_Speed, m_TopDist, -1, m_Direction, false);
+		m_SnapBlocked = zx::netsnapshot::MoverPlaneStalled( m_SnapBlocked, res == crushed );
 		
 		// killough 10/98: implement gradual lighting effects
 		if (m_LightTag != 0 && m_TopDist != -m_Sector->floorplane.d)
@@ -273,10 +298,14 @@ void DDoor::Tick ()
 			// have the correct floor/ceiling height for this sector.
 			if ( NETWORK_GetState( ) == NETSTATE_SERVER )
 			{
-				if ( m_Sector->floorOrCeiling == 0 )
-					SERVERCOMMANDS_SetSectorFloorPlane( m_Sector - sectors );
-				else
-					SERVERCOMMANDS_SetSectorCeilingPlane( m_Sector - sectors );
+				// [Kaori-Chani] features/net-snapshot: a record writes this plane.
+				if ( zx::netsnapshot::MoverServerStops( SNAPMV_DOOR, true ) == false )
+				{
+					if ( m_Sector->floorOrCeiling == 0 )
+						SERVERCOMMANDS_SetSectorFloorPlane( m_Sector - sectors );
+					else
+						SERVERCOMMANDS_SetSectorCeilingPlane( m_Sector - sectors );
+				}
 
 				// Tell clients to stop the floor's sound sequence.
 				SERVERCOMMANDS_StopSectorSequence( m_Sector );
@@ -326,6 +355,19 @@ void DDoor::Tick ()
 		}
 		break;
 	}
+
+	// [Kaori-Chani] features/net-snapshot: the state the tic ended in, unless a Destroy
+	// above captured the GONE already.
+	if (( ObjectFlags & OF_EuthanizeMe ) == 0 )
+		SnapCapture( );
+}
+
+// [Kaori-Chani] features/net-snapshot: the GONE, and the only hook that catches a door
+// destroyed outside Tick, such as the map reset's loop.
+void DDoor::Destroy()
+{
+	SnapCapture( true );
+	Super::Destroy();
 }
 
 void DDoor::UpdateToClient( ULONG ulClient )
@@ -370,18 +412,29 @@ void DDoor::DoorSound(bool raise, DSeqNode *curseq) const
 		choice += 2;
 	}
 
-	if (m_Sector->seqType >= 0)
+	P_DoorSoundSector (m_Sector, choice, curseq);
+
+	// [Kaori-Chani] features/net-snapshot: every door sound passes here; the module sends it
+	// to clients while the legacy mover gate is on.
+	zx::netsnapshot::MoverSendDoorSound (m_Sector, choice, curseq != NULL);
+}
+
+// [Kaori-Chani] features/net-snapshot: DoorSound's body keyed by sector, for a client with no
+// DDoor. DoorSound calls it, and the body is unchanged but for m_Sector becoming sec.
+void P_DoorSoundSector (sector_t *sec, int choice, DSeqNode *curseq)
+{
+	if (sec->seqType >= 0)
 	{
-		if (curseq == NULL || !SN_AreModesSame(m_Sector->seqType, SEQ_DOOR, choice, curseq->GetModeNum()))
+		if (curseq == NULL || !SN_AreModesSame(sec->seqType, SEQ_DOOR, choice, curseq->GetModeNum()))
 		{
-			SN_StartSequence(m_Sector, CHAN_CEILING, m_Sector->seqType, SEQ_DOOR, choice);
+			SN_StartSequence(sec, CHAN_CEILING, sec->seqType, SEQ_DOOR, choice);
 		}
 	}
-	else if (m_Sector->SeqName != NAME_None)
+	else if (sec->SeqName != NAME_None)
 	{
-		if (curseq == NULL || !SN_AreModesSame(m_Sector->SeqName, choice, curseq->GetModeNum()))
+		if (curseq == NULL || !SN_AreModesSame(sec->SeqName, choice, curseq->GetModeNum()))
 		{
-			SN_StartSequence(m_Sector, CHAN_CEILING, m_Sector->SeqName, choice);
+			SN_StartSequence(sec, CHAN_CEILING, sec->SeqName, choice);
 		}
 	}
 	else
@@ -403,10 +456,10 @@ void DDoor::DoorSound(bool raise, DSeqNode *curseq) const
 
 			// Search the front top textures of 2-sided lines on the door sector
 			// for a door sound to use.
-			for (int i = 0; i < m_Sector->linecount; ++i)
+			for (int i = 0; i < sec->linecount; ++i)
 			{
 				const char *texname;
-				line_t *line = m_Sector->lines[i];
+				line_t *line = sec->lines[i];
 
 				if (line->backsector == NULL)
 					continue;
@@ -445,7 +498,7 @@ void DDoor::DoorSound(bool raise, DSeqNode *curseq) const
 		}
 		if (curseq == NULL || !SN_AreModesSame(snd, choice, curseq->GetModeNum()))
 		{
-			SN_StartSequence(m_Sector, CHAN_CEILING, snd, choice);
+			SN_StartSequence(sec, CHAN_CEILING, snd, choice);
 		}
 	}
 }
@@ -571,6 +624,18 @@ LONG DDoor::GetLightTag( void )
 void DDoor::SetLightTag( LONG lTag )
 {
 	m_LightTag = lTag;
+}
+
+// [Kaori-Chani] features/net-snapshot: read by fua_snap_sectorcheck. On a client with no
+// record for this door yet, m_TopCountdown is the uninitialized value stock never reads.
+int DDoor::GetTopCountdown( void )
+{
+	return ( m_TopCountdown );
+}
+
+int DDoor::GetTopWait( void )
+{
+	return ( m_TopWait );
 }
 
 //============================================================================
