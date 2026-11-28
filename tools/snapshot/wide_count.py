@@ -25,7 +25,7 @@ import snap_payload
 from snap_payload import (G_POS, G_POSZ, DELTA, FRAME, RESET, MIRROR, MAP, EV_MOVER,
                           EV_BRANCH, EV_LOCAL)
 
-CSNAP_EXPECT = (14, 15, 16, 17, 18)
+CSNAP_EXPECT = (14, 15, 16, 17, 18, 19)
 
 
 def count(path):
@@ -108,7 +108,15 @@ def count(path):
                 o += 15
                 if not all(snap_payload.frame_width_known(w) for w in widths):
                     sys.exit(f'{path}: frame widths {widths}, which no encoding has')
-                frame = snap_payload.Frame(origin, widths)
+                # From v19 the mover index's width follows, and a mover header read at
+                # the wrong stride would price the wrong fields as wide.
+                index_bytes = snap_payload.MV_INDEX_NARROW
+                if ver >= 19:
+                    index_bytes = d[o]; o += 1
+                    if index_bytes not in (snap_payload.MV_INDEX_NARROW,
+                                           snap_payload.MV_INDEX_WIDE):
+                        sys.exit(f'{path}: map {name}: mover index width {index_bytes}')
+                frame = snap_payload.Frame(origin, widths, index_bytes)
                 already.update(a for a in range(3) if widths[a] != snap_payload.FRAME_NARROW)
         else:
             print(f'{path}: unknown record kind {k} at {o}; stopping')

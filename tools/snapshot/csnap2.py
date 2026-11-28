@@ -25,7 +25,7 @@ from snap_payload import (DELTA, FRAME, RESET, MIRROR, MAP, G_POS, G_POSZ, G_ANG
 
 # The container versions read, CSNAP_VERSION_MIN to CSNAP_VERSION
 # (docs/net-snapshot/record.md, docs/net-snapshot/tools.md).
-CSNAP_EXPECT = (14, 15, 16, 17, 18)
+CSNAP_EXPECT = (14, 15, 16, 17, 18, 19)
 RINGS = [512, 1024, 2048, 4096, 8192]
 NAMES = ['<512', '512-1k', '1k-2k', '2k-4k', '4k-8k', '>8k']
 
@@ -208,8 +208,16 @@ def main(path):
                 if not all(snap_payload.frame_width_known(w) for w in widths) or (
                         ver < 18 and widths != (2, 2, 2)):
                     sys.exit(f'map {name}: frame widths {widths} in a v{ver} file')
-            frame = snap_payload.Frame(origin, widths)
-            maps.append((name, crc, origin, widths))
+            # From v19 the mover index's width follows, which sizes every envelope after
+            # this record.
+            index_bytes = snap_payload.MV_INDEX_NARROW
+            if ver >= 19:
+                index_bytes = d[o]; o += 1
+                if index_bytes not in (snap_payload.MV_INDEX_NARROW,
+                                       snap_payload.MV_INDEX_WIDE):
+                    sys.exit(f'map {name}: mover index width {index_bytes}')
+            frame = snap_payload.Frame(origin, widths, index_bytes)
+            maps.append((name, crc, origin, widths, index_bytes))
         else:
             print(f'unknown record kind {k} at {o}')
             break
@@ -219,10 +227,12 @@ def main(path):
     print(f'{ndelta} deltas, {nframe} frames, {ndrawn} drawn-state changes, '
           f'{dur:.1f} s')
     # The frame only off narrow at origin 0, so a map that fits prints as it
-    # always has.
-    named = [f'{n} ({c}, origin {g[0]} {g[1]} {g[2]}, {w[0]} {w[1]} {w[2]} bytes an axis)'
-             if (any(g) or w != (2, 2, 2)) else f'{n} ({c})'
-             for n, c, g, w in maps]
+    # always has; a wide mover index is named because it sizes every envelope.
+    named = [f'{n} ({c}, origin {g[0]} {g[1]} {g[2]}, {w[0]} {w[1]} {w[2]} bytes an axis'
+             + (f', mover index {x}' if x != snap_payload.MV_INDEX_NARROW else '') + ')'
+             if (any(g) or w != (2, 2, 2) or x != snap_payload.MV_INDEX_NARROW)
+             else f'{n} ({c})'
+             for n, c, g, w, x in maps]
     print('maps: ' + (', '.join(named) if named else 'none named'))
     # A parse error is reported, as a walk that stopped early looks plausible.
     if nerr:

@@ -2238,7 +2238,8 @@ unsigned int zx::netsnapshot::BuildDelta(unsigned int client, const SnapEntitySt
 			const unsigned int slot = (cl.moverCursor + k) % slots;
 
 			BYTE cls = 0, mflags = 0, gen = 0;
-			WORD index = 0, seq = 0;
+			unsigned int index = 0;
+			WORD seq = 0;
 			BYTE body[SNAPMV_BODY_MAX];
 			unsigned int bodyBytes = 0;
 			if (MoverSlotRead(slot, cls, mflags, index, gen, seq, body,
@@ -2252,7 +2253,7 @@ unsigned int zx::netsnapshot::BuildDelta(unsigned int client, const SnapEntitySt
 
 			BYTE mrec[SNAP_MAX_EVENT_BYTES];
 			const unsigned int n = WriteMoverBody(mrec, cls, mflags, index,
-				gen, body, bodyBytes);
+				gen, body, bodyBytes, ServerMapFrame().indexBytes);
 
 			// Id 0, the index riding in the body, so each costs a 1-byte gap.
 			SnapEmitRec & er = snapcl_PushPrefix(mrec, n, 0, SNAPEMIT_MOVER);

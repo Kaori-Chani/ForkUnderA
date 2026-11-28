@@ -118,8 +118,9 @@ def main():
         # narrow at origin 0, and a v33 one was only ever narrow.
         frame = snap_payload.NARROW
         if version >= 33:
-            fr = f.read(15)
-            if len(fr) < 15:
+            want = 16 if version >= 35 else 15
+            fr = f.read(want)
+            if len(fr) < want:
                 print("truncated zsnap header")
                 return 1
             origin = struct.unpack("<iii", fr[:12])
@@ -128,7 +129,14 @@ def main():
                     or (version < 34 and widths != (2, 2, 2))):
                 print("frame widths %s in a v%d file" % (widths, version))
                 return 1
-            frame = snap_payload.Frame(origin, widths)
+            # From v35 the mover index's width follows them, and an unknown one would
+            # read every mover envelope at the wrong stride.
+            index_bytes = fr[15] if version >= 35 else snap_payload.MV_INDEX_NARROW
+            if index_bytes not in (snap_payload.MV_INDEX_NARROW,
+                                   snap_payload.MV_INDEX_WIDE):
+                print("mover index width %d in a v%d file" % (index_bytes, version))
+                return 1
+            frame = snap_payload.Frame(origin, widths, index_bytes)
             if any(origin) or frame.wide():
                 print("map frame origin %d %d %d, %d %d %d bytes an axis"
                       % (origin + widths))

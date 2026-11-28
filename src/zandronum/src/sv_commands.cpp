@@ -4881,7 +4881,7 @@ void SERVERCOMMANDS_DoDoor( sector_t *pSector, DDoor::EVlDoor type, LONG lSpeed,
 		return;
 
 	NetCommand command ( SVC_DODOOR );
-	command.addShort ( lSectorID );
+	command.addLong ( lSectorID );
 	command.addByte ( (BYTE)type );
 	command.addLong ( lSpeed );
 	command.addByte ( lDirection );
@@ -4929,7 +4929,7 @@ void SERVERCOMMANDS_ChangeDoorDirection( LONG lID, LONG lDirection, ULONG ulPlay
 void SERVERCOMMANDS_DoorSound( sector_t *pSector, int choice, bool bCheckSequence, ULONG ulPlayerExtra, ServerCommandFlags flags )
 {
 	NetCommand command ( SVC2_DOORSOUND );
-	command.addShort ( pSector - sectors );
+	command.addLong ( pSector - sectors );
 	command.addByte (( choice & 3 ) | ( bCheckSequence ? 4 : 0 ));
 	command.sendCommandToClients ( ulPlayerExtra, flags );
 }
@@ -4944,7 +4944,7 @@ void SERVERCOMMANDS_MoverSound( sector_t *pSector, int packed, ULONG ulPlayerExt
 		return;
 
 	NetCommand command ( SVC2_MOVERSOUND );
-	command.addShort ( lSectorID );
+	command.addLong ( lSectorID );
 	command.addByte ( packed );
 	command.sendCommandToClients ( ulPlayerExtra, flags );
 }
@@ -4959,7 +4959,7 @@ void SERVERCOMMANDS_FloorSound( sector_t *pSector, ULONG ulPlayerExtra, ServerCo
 		return;
 
 	NetCommand command ( SVC2_FLOORSOUND );
-	command.addShort ( lSectorID );
+	command.addLong ( lSectorID );
 	command.sendCommandToClients ( ulPlayerExtra, flags );
 }
 
@@ -4985,7 +4985,7 @@ void SERVERCOMMANDS_DoFloor( DFloor::EFloor Type, sector_t *pSector, LONG lDirec
 
 	NetCommand command ( SVC_DOFLOOR );
 	command.addByte ( (ULONG)Type );
-	command.addShort ( lSectorID );
+	command.addLong ( lSectorID );
 	command.addByte ( lDirection );
 	command.addLong ( lSpeed );
 	command.addLong ( lFloorDestDist );
@@ -5081,7 +5081,7 @@ void SERVERCOMMANDS_BuildStair( DFloor::EFloor Type, sector_t *pSector, int Dire
 
 	NetCommand command ( SVC2_BUILDSTAIR );
 	command.addByte ( (int)Type );
-	command.addShort ( SectorID );
+	command.addLong ( SectorID );
 	command.addByte ( clamp(Direction,-128,127) );
 	command.addLong ( (SDWORD)(Speed) );
 	command.addLong ( (SDWORD)(FloorDestDist) );
@@ -5119,7 +5119,7 @@ void SERVERCOMMANDS_DoCeiling( DCeiling::ECeiling Type, sector_t *pSector, LONG 
 
 	NetCommand command ( SVC_DOCEILING );
 	command.addByte ( (ULONG)Type );
-	command.addShort ( lSectorID );
+	command.addLong ( lSectorID );
 	command.addByte ( lDirection );
 	command.addLong ( lBottomHeight );
 	command.addLong ( lTopHeight );
@@ -5204,7 +5204,7 @@ void SERVERCOMMANDS_DoPlat( DPlat::EPlatType Type, sector_t *pSector, DPlat::EPl
 
 	NetCommand command ( SVC_DOPLAT );
 	command.addByte ( (ULONG)Type );
-	command.addShort ( lSectorID );
+	command.addLong ( lSectorID );
 	command.addByte ( (ULONG)Status );
 	command.addLong ( lHigh );
 	command.addLong ( lLow );
@@ -5273,7 +5273,7 @@ void SERVERCOMMANDS_DoElevator( DElevator::EElevator Type, sector_t *pSector, LO
 
 	NetCommand command ( SVC_DOELEVATOR );
 	command.addByte ( Type );
-	command.addShort ( lSectorID );
+	command.addLong ( lSectorID );
 	command.addLong ( lSpeed );
 	command.addByte ( lDirection );
 	command.addLong ( lFloorDestDist );
@@ -5321,7 +5321,7 @@ void SERVERCOMMANDS_DoPillar( DPillar::EPillar Type, sector_t *pSector, LONG lFl
 
 	NetCommand command ( SVC_DOPILLAR );
 	command.addByte ( Type );
-	command.addShort ( lSectorID );
+	command.addLong ( lSectorID );
 	command.addLong ( lFloorSpeed );
 	command.addLong ( lCeilingSpeed );
 	command.addLong ( lFloorTarget );
@@ -5358,7 +5358,7 @@ void SERVERCOMMANDS_DoWaggle( bool bCeiling, sector_t *pSector, LONG lOriginalDi
 
 	NetCommand command ( SVC_DOWAGGLE );
 	command.addByte ( !!bCeiling );
-	command.addShort ( lSectorID );
+	command.addLong ( lSectorID );
 	command.addLong ( lOriginalDistance );
 	command.addLong ( lAccumulator );
 	command.addLong ( lAccelerationDelta );
@@ -5810,11 +5810,11 @@ void SERVERCOMMANDS_DoPusher( ULONG ulType, line_t *pLine, int iMagnitude, int i
 
 	NetCommand command ( SVC_DOPUSHER );
 	command.addByte ( ulType );
-	command.addShort ( iLineNum );
+	command.addLong ( iLineNum );
 	command.addLong ( iMagnitude );
 	command.addLong ( iAngle );
 	command.addShort ( sourceNetID );
-	command.addShort ( iAffectee );
+	command.addLong ( iAffectee );
 	command.sendCommandToClients ( ulPlayerExtra, flags );
 }
 
@@ -6167,6 +6167,7 @@ void SERVERCOMMANDS_SnapJoin( ULONG ulPlayerExtra, ServerCommandFlags flags )
 	command.SetWidthX( frame.width[0] );
 	command.SetWidthY( frame.width[1] );
 	command.SetWidthZ( frame.width[2] );
+	command.SetWidthSector( frame.indexBytes );
 	command.sendCommandToClients( ulPlayerExtra, flags );
 }
 

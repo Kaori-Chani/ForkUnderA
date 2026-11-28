@@ -1827,7 +1827,9 @@ static int ExecuteClientScript ( AActor* activator, int script, int client, int*
 		for ( int i = 0; i < MIN( argCount, 4 ); i++ )
 			scriptArgs[i] = args[i];
 
-		SERVERCOMMANDS_ACSScriptExecute( script, activator, 0, 0, 0, scriptArgs, 4, true, client, SVCF_ONLYTHISCLIENT );
+		// [Kaori-Chani] -1 is no line, where 0 is line 0: a script a line triggers names that line.
+		SERVERCOMMANDS_ACSScriptExecute( script, activator, -1, 0, 0, scriptArgs, 4,
+			true, client, SVCF_ONLYTHISCLIENT );
 		return 1;
 	}
 
@@ -3448,7 +3450,8 @@ void FBehavior::StartTypedScripts (WORD type, AActor *activator, bool always, in
 			{
 				// [RK] If it's an unloading script, don't waste traffic since the clients will run it on their own in G_ChangeLevel
 				if( ptr->Type != SCRIPT_Unloading )
-					SERVERCOMMANDS_ACSScriptExecute( ptr->Number, activator, 0, 0, 0, arg, 3, always );
+					SERVERCOMMANDS_ACSScriptExecute( ptr->Number, activator, -1, 0, 0, arg,
+						3, always );
 				continue;
 			}
 			DLevelScript *runningScript = P_GetScriptGoing (activator, NULL, ptr->Number,

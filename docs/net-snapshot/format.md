@@ -85,6 +85,10 @@ Its quantizers carry 16.16 through 64-bit arithmetic, so they hold for this engi
     origin 0.
   - v34: a frame axis may be wide (`SNAP_FRAME_WIDE`), widening every position on it; a narrow
     frame's payload is v33's.
+  - v35: a mover envelope's sector index is four bytes on a map of more than 65,535 sectors
+    (`SNAPMV_INDEX_WIDE`), and the width that says which rides in the `.zsnap` header
+    (`ZSNAP_HEADER_FRAME35`), in `SnapJoin` and in the `.csnap` map record; a map within the
+    narrow width is v34's, byte for byte.
 
   `SNAPEV_PROPS` arrived after v34 and moved no version: a self-describing type is skipped by a
   reader that does not know it, which is what the version rule below means by not a break.
@@ -163,6 +167,11 @@ Events:
 Movers:
 - `WriteMover*` (9) and `ReadMover*` (8): the envelope, one per class, and on the write side the
   whole event body with its length byte.
+- `ResetAhead`: how far one map-reset count is ahead of another, as a signed 8-bit
+  difference, so the comparison survives the count's wrap. Behind is negative, ahead
+  positive, the same reset 0, and the byte sets the limit: 127 apart still reads ahead,
+  128 reads behind. Both sides of the mover hold use this one copy (`movers.cpp`), and
+  the map stamp's comparison in `join_compute.cpp` has the same shape and limit.
 - `MoverHeaderBytes`: the envelope's width for a stream version (pre-v28 has no generation).
 - `MoverBodyBytes`, `MoverRecordBodyBytes`: a body's length by class and flags, walked for a
   polyobject; 0 refuses the record.

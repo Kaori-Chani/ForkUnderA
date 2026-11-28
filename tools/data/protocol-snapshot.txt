@@ -1,6 +1,9 @@
 # AUTO-GENERATED wire-format snapshot -- do not hand-edit.
 # Regenerate with: tools/protocol-snapshot.py --write
 # One line per network command: <spec-order> <enum> [flags] : <field-types-in-order>,
+# a struct expanded as Struct<Name>{members} and an array as Array<Byte>{element};
+# then the hand-framed commands, whose fields their own senders write rather than the spec,
+# with ? for a conditional field and * for one written in a loop;
 # then one line per wire command id: <value> <enum>, as network_enums.h assigns it.
 # A diff here means a backport changed the client/server wire format. Confirm it
 # is intentional AND that older clients can still parse it before updating this file.
@@ -25,8 +28,8 @@
  15 SVC_SETMAPSKY                          : String String
   2 SVC2_SETMAPSKYSCROLLSPEED              [Extended] : Bool Float
   3 SVC2_SECRETFOUND                       [Extended] : Actor Byte
-  4 SVC2_SECRETMARKSECTORFOUND             [Extended] : Sector
- 16 SVC_DOSCROLLER                         : Byte Fixed Fixed Long Bool Bool Bool Sector?{hasControl} Byte?{hasPos}
+  4 SVC2_SECRETMARKSECTORFOUND             [Extended] : Sector<Long>
+ 16 SVC_DOSCROLLER                         : Byte Fixed Fixed Long Bool Bool Bool Sector<Long>?{hasControl} Byte?{hasPos}
  17 SVC_SPAWNPLAYER                        : Player ShortByte<4> Bool Bool Bool Bool NetID Angle Fixed Fixed Fixed UShort Short?{isMorphed} Class?{isMorphed}
  18 SVC_MOVEPLAYER                         [Unreliable] : Player Byte Fixed?{flags & PLAYER_VISIBLE} Fixed?{flags & PLAYER_VISIBLE} Fixed?{flags & PLAYER_VISIBLE} Angle?{flags & PLAYER_VISIBLE} Fixed?{(flags & PLAYER_VISIBLE) && (flags & PLAYER_SENDVELX)} Fixed?{(flags & PLAYER_VISIBLE) && (flags & PLAYER_SENDVELY)} Fixed?{(flags & PLAYER_VISIBLE) && (flags & PLAYER_SENDVELZ)}
  19 SVC_DAMAGEPLAYER                       : Player Variable Variable Actor
@@ -35,7 +38,7 @@
  21 SVC_SETPLAYERHEALTH                    : Player Variable
  22 SVC_SETPLAYERARMOR                     : Player Variable String
  23 SVC_SETPLAYERSTATE                     : Player Byte
- 24 SVC_SETPLAYERUSERINFO                  : Player Struct
+ 24 SVC_SETPLAYERUSERINFO                  : Player Array<Byte>{Struct<CVar>{Name String}}
   6 SVC2_SETPLAYERCOUNTRY                  [Extended] : Player Byte
   7 SVC2_SETPLAYERACCOUNTNAME              [Extended] : Player String
  25 SVC_SETPLAYERFRAGS                     : Player Variable
@@ -131,73 +134,73 @@
  25 SVC2_STARTCONVERSATION                 [Extended] : Actor Player Long Bool Bool
  26 SVC2_CONVERSATIONREPLY                 [Extended] : Player Long Long
  27 SVC2_ENDCONVERSATION                   [Extended] : Player
- 98 SVC_SETSECTORFLOORPLANE                : Sector AproxFixed
- 99 SVC_SETSECTORCEILINGPLANE              : Sector AproxFixed
-100 SVC_SETSECTORFLOORPLANESLOPE           : Sector AproxFixed AproxFixed AproxFixed
-101 SVC_SETSECTORCEILINGPLANESLOPE         : Sector AproxFixed AproxFixed AproxFixed
-102 SVC_SETSECTORLIGHTLEVEL                : Sector Short
-103 SVC_SETSECTORCOLOR                     : Sector Byte Byte Byte Byte
+ 98 SVC_SETSECTORFLOORPLANE                : Sector<Long> AproxFixed
+ 99 SVC_SETSECTORCEILINGPLANE              : Sector<Long> AproxFixed
+100 SVC_SETSECTORFLOORPLANESLOPE           : Sector<Long> AproxFixed AproxFixed AproxFixed
+101 SVC_SETSECTORCEILINGPLANESLOPE         : Sector<Long> AproxFixed AproxFixed AproxFixed
+102 SVC_SETSECTORLIGHTLEVEL                : Sector<Long> Short
+103 SVC_SETSECTORCOLOR                     : Sector<Long> Byte Byte Byte Byte
 104 SVC_SETSECTORCOLORBYTAG                : Short Byte Byte Byte Byte
-105 SVC_SETSECTORFADE                      : Sector Byte Byte Byte
+105 SVC_SETSECTORFADE                      : Sector<Long> Byte Byte Byte
 106 SVC_SETSECTORFADEBYTAG                 : Short Byte Byte Byte
-107 SVC_SETSECTORFLAT                      : Sector String String
-108 SVC_SETSECTORPANNING                   : Sector Fixed Fixed Fixed Fixed
-109 SVC_SETSECTORROTATION                  : Sector Short Short
+107 SVC_SETSECTORFLAT                      : Sector<Long> String String
+108 SVC_SETSECTORPANNING                   : Sector<Long> Fixed Fixed Fixed Fixed
+109 SVC_SETSECTORROTATION                  : Sector<Long> Short Short
 110 SVC_SETSECTORROTATIONBYTAG             : Short Short Short
-111 SVC_SETSECTORSCALE                     : Sector Fixed Fixed Fixed Fixed
-112 SVC_SETSECTORSPECIAL                   : Sector Short
-113 SVC_SETSECTORFRICTION                  : Sector Fixed Fixed
-114 SVC_SETSECTORANGLEYOFFSET              : Sector Fixed Fixed Fixed Fixed
-115 SVC_SETSECTORGRAVITY                   : Sector Float
-116 SVC_SETSECTORREFLECTION                : Sector Float Float
-117 SVC_SETSECTORLINK                      : Sector Short Byte Byte
-118 SVC_STOPSECTORLIGHTEFFECT              : Sector
+111 SVC_SETSECTORSCALE                     : Sector<Long> Fixed Fixed Fixed Fixed
+112 SVC_SETSECTORSPECIAL                   : Sector<Long> Short
+113 SVC_SETSECTORFRICTION                  : Sector<Long> Fixed Fixed
+114 SVC_SETSECTORANGLEYOFFSET              : Sector<Long> Fixed Fixed Fixed Fixed
+115 SVC_SETSECTORGRAVITY                   : Sector<Long> Float
+116 SVC_SETSECTORREFLECTION                : Sector<Long> Float Float
+117 SVC_SETSECTORLINK                      : Sector<Long> Short Byte Byte
+118 SVC_STOPSECTORLIGHTEFFECT              : Sector<Long>
 119 SVC_DESTROYALLSECTORMOVERS             : (no fields)
-120 SVC_STARTSECTORSEQUENCE                : Sector Byte String Byte
-121 SVC_STOPSECTORSEQUENCE                 : Sector
-122 SVC_DOSECTORLIGHTFIREFLICKER           : Sector Short Short
-123 SVC_DOSECTORLIGHTFLICKER               : Sector Short Short
-124 SVC_DOSECTORLIGHTLIGHTFLASH            : Sector Short Short
-125 SVC_DOSECTORLIGHTSTROBE                : Sector Short Short Short Short Byte
-126 SVC_DOSECTORLIGHTGLOW                  : Sector
-127 SVC_DOSECTORLIGHTGLOW2                 : Sector Short Short Short Short Bool
-128 SVC_DOSECTORLIGHTPHASED                : Sector Short Byte
-129 SVC_SETLINEALPHA                       : Line Fixed
-130 SVC_SETLINETEXTURE                     : Line String Bool Byte
+120 SVC_STARTSECTORSEQUENCE                : Sector<Long> Byte String Byte
+121 SVC_STOPSECTORSEQUENCE                 : Sector<Long>
+122 SVC_DOSECTORLIGHTFIREFLICKER           : Sector<Long> Short Short
+123 SVC_DOSECTORLIGHTFLICKER               : Sector<Long> Short Short
+124 SVC_DOSECTORLIGHTLIGHTFLASH            : Sector<Long> Short Short
+125 SVC_DOSECTORLIGHTSTROBE                : Sector<Long> Short Short Short Short Byte
+126 SVC_DOSECTORLIGHTGLOW                  : Sector<Long>
+127 SVC_DOSECTORLIGHTGLOW2                 : Sector<Long> Short Short Short Short Bool
+128 SVC_DOSECTORLIGHTPHASED                : Sector<Long> Short Byte
+129 SVC_SETLINEALPHA                       : Line<Long> Fixed
+130 SVC_SETLINETEXTURE                     : Line<Long> String Bool Byte
 131 SVC_SETLINETEXTUREBYID                 : UShort String Bool Byte
-132 SVC_SETLINETEXTUREOFFSET               : Line Fixed Fixed Bool Byte
+132 SVC_SETLINETEXTUREOFFSET               : Line<Long> Fixed Fixed Bool Byte
  28 SVC2_SETLINETEXTUREOFFSETBYID          [Extended] : UShort Fixed Fixed Bool Byte
-133 SVC_SETLINETEXTURESCALE                : Line Fixed Fixed Bool Byte
+133 SVC_SETLINETEXTURESCALE                : Line<Long> Fixed Fixed Bool Byte
  29 SVC2_SETLINETEXTURESCALEBYID           [Extended] : UShort Fixed Fixed Bool Byte
-134 SVC_SETSOMELINEFLAGS                   : Line Long
-135 SVC_SETSIDEFLAGS                       : Side Byte
+134 SVC_SETSOMELINEFLAGS                   : Line<Long> Long
+135 SVC_SETSIDEFLAGS                       : Side<Long> Byte
 136 SVC_SOUND                              : Byte String Byte Byte Short
 137 SVC_SOUNDACTOR                         : Actor Short String Byte Byte Short
 138 SVC_SOUNDACTORIFNOTPLAYING             : Actor Short String Byte Byte Short
- 30 SVC2_SOUNDSECTOR                       [Extended] : Sector Short String Byte Byte Short
+ 30 SVC2_SOUNDSECTOR                       [Extended] : Sector<Long> Short String Byte Byte Short
 139 SVC_SOUNDPOINT                         : AproxFixed AproxFixed AproxFixed Byte String Byte Byte Short
 140 SVC_ANNOUNCERSOUND                     : String
  31 SVC2_STOPSOUND                         [Extended] : Actor Byte
  32 SVC2_STOPORIGINLESSSOUND               [Extended] : Byte
 141 SVC_SPAWNMISSILE                       : AproxFixed AproxFixed AproxFixed Fixed Fixed Fixed Class<AActor> NetID NetID
 142 SVC_SPAWNMISSILEEXACT                  : Fixed Fixed Fixed Fixed Fixed Fixed Class<AActor> NetID NetID
-143 SVC_MISSILEEXPLODE                     : Actor Short AproxFixed AproxFixed AproxFixed
+143 SVC_MISSILEEXPLODE                     : Actor Long AproxFixed AproxFixed AproxFixed
 144 SVC_WEAPONSOUND                        : Player String
 145 SVC_WEAPONCHANGE                       : Player Class<AWeapon>
 146 SVC_WEAPONRAILGUN                      : Actor Vector3 Vector3 Long Long Float ShortByte<5> Bool Bool Bool Long?{extended} Class?{extended} Short?{extended} Float?{extended} Float?{extended} Class?{usePuffDecal}
  33 SVC2_SETWEAPONZOOMFACTOR               [Extended] : Player Float Byte
-147 SVC_ACSSCRIPTEXECUTE                   : Short Actor Short Byte Variable Variable Variable Variable Bool Bool
+147 SVC_ACSSCRIPTEXECUTE                   : Short Actor Long Byte Variable Variable Variable Variable Bool Bool
  34 SVC2_ACSSENDSTRING                     [Extended] : Short Actor String
- 35 SVC2_SYNCJOINQUEUE                     [Extended] : Struct
- 36 SVC2_SYNCMAPROTATION                   [Extended] : Struct Short
- 37 SVC2_SYNCPLAYERMEDALCOUNTS             [Extended] : Byte Struct
+ 35 SVC2_SYNCJOINQUEUE                     [Extended] : Array<Byte>{Struct<JoinSlot>{Byte Byte}}
+ 36 SVC2_SYNCMAPROTATION                   [Extended] : Array<Byte>{Struct<MapRotationEntry>{String Byte Byte Byte}} Short
+ 37 SVC2_SYNCPLAYERMEDALCOUNTS             [Extended] : Byte Array<Byte>{Struct<Medal>{Byte UShort}}
 148 SVC_REPLACETEXTURES                    : String String Byte
  38 SVC2_SETCUSTOMPLAYERVALUE              [Extended] : Byte Byte String
  39 SVC2_RESETCUSTOMPLAYERVALUE            [Extended] : Byte Byte
  40 SVC2_OPENMENU                          [Extended] : String
  41 SVC2_CLOSEMENU                         [Extended] : (no fields)
 149 SVC_SETDOMINATIONPOINTOWNER            : Byte Byte Bool
- 42 SVC2_SETDOMINATIONPOINTSTATE           [Extended] : Byte Bool Byte
+ 42 SVC2_SETDOMINATIONPOINTSTATE           [Extended] : Byte Bool Array<Byte>{Byte}
  43 SVC2_DEBUGEXPLOSION                    [Extended] : AproxFixed AproxFixed AproxFixed Short Short
  44 SVC2_SETTHINGSPRITEORIENTATION         [Extended] : Actor Byte AproxAngle?{orientflags & SPRITEORIENT_ROLL}
  45 SVC2_FUADAMAGETAKEN                    [Extended] : Variable Variable Variable Variable Byte Class Class String Bool
@@ -208,9 +211,131 @@
  50 SVC2_FUASETACTORUNIFORM                [Extended] : Actor Byte Byte Long?{kind == 0} Float?{kind >= 1} Float?{kind >= 2} Float?{kind >= 3} Float?{kind >= 4}
  51 SVC2_SNAPMOVERGATE                     [Extended] : Bool Long
  52 SVC2_SETTHINGNETID                     [Extended] : NetID NetID
- 53 SVC2_SNAPJOIN                          [Extended] : Byte Byte Long Long Long Byte Byte Byte
- 54 SVC2_SNAPSPECIALSTATE                  [Extended] : Short Struct Short Struct
+ 53 SVC2_SNAPJOIN                          [Extended] : Byte Byte Long Long Long Byte Byte Byte Byte
+ 54 SVC2_SNAPSPECIALSTATE                  [Extended] : Short Array<Byte>{Struct<SnapScrollerState>{Byte Long Fixed Fixed Fixed}} Short Array<Byte>{Struct<SnapPusherState>{Byte Long Long Long Long NetID}}
  55 SVC2_SNAPMAPRESET                      [Extended] : Byte
+## hand-framed commands (src/zandronum/src/sv_commands.cpp, src/zandronum/src/features/net-snapshot/capture.cpp)
+SVC2_BUILDSTAIR                        : Byte Long Byte Long Long Byte Byte Long Long Long Long Long Short
+SVC2_CANCELFADE                        : Byte
+SVC2_CLEARCONSOLEPLAYERWEAPON          : (no fields)
+SVC2_CLEARVOTE                         : (no fields)
+SVC2_DOORSOUND                         : Long Byte
+SVC2_FLASHSTEALTHMONSTER               : Short Byte
+SVC2_FLOORSOUND                        : Long
+SVC2_LIGHTNING                         : (no fields)
+SVC2_MOVERSOUND                        : Long Byte
+SVC2_PLAYBOUNCESOUND                   : Short Byte
+SVC2_PUSHTOJOINQUEUE                   : Byte Byte
+SVC2_RCONACCESS                        : Byte
+SVC2_REMOVEFROMJOINQUEUE               : Byte
+SVC2_RESETMAP                          : (no fields)
+SVC2_SCROLL3DMIDTEX                    : Long Long Byte
+SVC2_SETCVAR                           : String String
+SVC2_SETDEFAULTSKYBOX                  : Short
+SVC2_SETFASTCHASESTRAFECOUNT           : Short Byte
+SVC2_SETIGNOREWEAPONSELECT             : Byte
+SVC2_SETINVENTORYICON                  : Byte Short String
+SVC2_SETMUGSHOTSTATE                   : String
+SVC2_SETPLAYERHAZARDCOUNT              : Byte Short
+SVC2_SETPLAYERLOGNUMBER                : Byte Short
+SVC2_SETPLAYERVIEWHEIGHT               : Byte Long
+SVC2_SETPOWERUPBLENDCOLOR              : Byte Short Long
+SVC2_SETTHINGHEALTH                    : Short Long
+SVC2_SETTHINGSCALE                     : Short Byte Long? Long?
+SVC2_SETTHINGSIZE                      : Short Byte Long? Long? Long? Long?
+SVC2_SETTHINGSPECIAL                   : Short Short
+SVC2_SHOOTDECAL                        : Name Short Short Short Long Byte
+SVC2_SNAPCOSMETIC                      [Unreliable] : Byte Short Buffer
+SVC2_SNAPSHOT                          [Unreliable] : Long Long Long Byte Byte Byte Short Short Buffer
+SVC2_SNAPSOUND                         [Unreliable?] : Buffer
+SVC2_SNAPSOUNDTABLE                    : Byte Short Long Long
+SVC2_STOPALLSOUNDSONTHING              : Short
+SVC2_STOPPOLYOBJSOUND                  : Short
+SVC2_SYNCPATHFOLLOWER                  : Short Short Short Float
+SVC2_UPDATEMAPROTATION                 : Byte
+SVC2_UPDATEMAPROTATION                 : Byte Short Bit
+SVC2_UPDATEMAPROTATION                 : Byte String Short Byte Byte
+SVC2_UPDATEMAPROTATION                 : Byte String?
+SVC_ADJUSTPUSHER                       : Short Long Long Byte
+SVC_CALLVOTE                           : Byte String String String
+SVC_CHANGECEILINGDIRECTION             : Short Byte
+SVC_CHANGECEILINGSPEED                 : Short Long
+SVC_CHANGEDOORDIRECTION                : Short Byte
+SVC_CHANGEFLOORDESTDIST                : Short Long
+SVC_CHANGEFLOORDIRECTION               : Short Byte
+SVC_CHANGEFLOORTYPE                    : Short Byte
+SVC_CHANGEPLATSTATUS                   : Short Byte
+SVC_CREATETRANSLATION                  : Short Bit ShortByte<7> Byte Byte Byte Byte
+SVC_CREATETRANSLATION                  : Short Bit ShortByte<7> Byte Byte Byte Byte Byte Byte Byte Byte
+SVC_CREATETRANSLATION                  : Short Bit ShortByte<7> Byte Byte Float Float Float Float Float Float
+SVC_DESTROYALLINVENTORY                : Byte
+SVC_DESTROYCEILING                     : Short
+SVC_DESTROYDOOR                        : Short
+SVC_DESTROYELEVATOR                    : Short
+SVC_DESTROYFLOOR                       : Short
+SVC_DESTROYMOVEPOLY                    : Short
+SVC_DESTROYPILLAR                      : Short
+SVC_DESTROYPLAT                        : Short
+SVC_DESTROYPOLYDOOR                    : Short
+SVC_DESTROYROTATEPOLY                  : Short
+SVC_DESTROYWAGGLE                      : Short
+SVC_DOCEILING                          : Byte Long Byte Long Long Long Byte Byte Short Short
+SVC_DODOOR                             : Long Byte Long Byte Short Short
+SVC_DOELEVATOR                         : Byte Long Long Byte Long Long Short
+SVC_DOFLASHFADER                       : Float Float Float Float Float Float Float Float Float Byte
+SVC_DOFLOOR                            : Byte Long Byte Long Long Byte Byte Short
+SVC_DOGAMEMODECOUNTDOWN                : Short
+SVC_DOGAMEMODEFIGHT                    : Byte
+SVC_DOGAMEMODEWINSEQUENCE              : Byte
+SVC_DOINVENTORYPICKUP                  : Byte String String
+SVC_DOMOVEPOLY                         : Long Long Short
+SVC_DOPILLAR                           : Byte Long Long Long Long Long Byte Byte Short
+SVC_DOPLAT                             : Byte Long Byte Long Long Long Short
+SVC_DOPOLYDOOR                         : Byte Long Long Long Short
+SVC_DOPOSSESSIONARTIFACTDROPPED        : (no fields)
+SVC_DOPOSSESSIONARTIFACTPICKEDUP       : Byte Short
+SVC_DOPUSHER                           : Byte Long Long Long Short Long
+SVC_DOROTATEPOLY                       : Long Short
+SVC_DOWAGGLE                           : Byte Long Long Long Long Long Long Long Long Byte Short
+SVC_EARTHQUAKE                         : Short Byte Byte Byte Short Short String Long
+SVC_GENERICCHEAT                       : Byte Byte
+SVC_GIVEPOWERUP                        : Byte Short Short Byte Short?
+SVC_NOTHING                            [Unreliable] : (no fields)
+SVC_PLAYCEILINGSOUND                   : Short
+SVC_PLAYERVOTE                         : Byte Byte
+SVC_PLAYPLATSOUND                      : Short Byte
+SVC_PLAYPOLYOBJSOUND                   : Short Byte
+SVC_SETCAMERATOTEXTURE                 : Short String Byte
+SVC_SETDUELNUMDUELS                    : Byte
+SVC_SETGAMEDMFLAGS                     : Long Long Long Long Long Long Long
+SVC_SETGAMEENDLEVELDELAY               : Short
+SVC_SETGAMEMODE                        : Byte Byte Byte
+SVC_SETGAMEMODELIMITS                  : Short Float Short Byte Byte Byte Byte Byte Byte Byte Float Float Float Bit Bit Bit Bit Bit String Byte Byte Byte Float Float Float Byte Float Float
+SVC_SETGAMEMODESTATE                   : Byte Short
+SVC_SETGAMESKILL                       : Byte Byte
+SVC_SETINVASIONNUMMONSTERSLEFT         : Short Short
+SVC_SETINVASIONWAVE                    : Byte
+SVC_SETLMSALLOWEDWEAPONS               : Long
+SVC_SETLMSSPECTATORSETTINGS            : Long
+SVC_SETPLAYERAMMOCAPACITY              : Byte Short Long
+SVC_SETPLAYERCHEATS                    : Byte Long
+SVC_SETPLAYERPOISONCOUNT               : Byte Short
+SVC_SETPOLYDOORSPEEDPOSITION           : Short Long Long Long Long
+SVC_SETPOLYDOORSPEEDROTATION           : Short Long Long
+SVC_SETPOLYOBJPOSITION                 : Short Long Long
+SVC_SETPOLYOBJROTATION                 : Short Long
+SVC_SETSCROLLER                        : Byte Long Long Short
+SVC_SETSIMPLECTFSTMODE                 : Byte
+SVC_SETTEAMRETURNTICKS                 : Byte Short
+SVC_SETTEAMSCORE                       : Byte Bit ShortByte<5> Variable
+SVC_SETWALLSCROLLER                    : Long Byte Long Long Long
+SVC_STARTELEVATORSOUND                 : Short
+SVC_STARTFLOORSOUND                    : Short
+SVC_TAKEINVENTORY                      : Byte Short Long
+SVC_TEAMITEMDROPPED                    : Byte Byte
+SVC_TEAMITEMRETURNED                   : Byte Byte
+SVC_UPDATEWAGGLE                       [Unreliable] : Short Long
+SVC_VOTEENDED                          : Byte
 ## wire ids (network_enums.h)
 # ServerConnectionCommand
   0 SVCC_AUTHENTICATE

@@ -31,10 +31,12 @@ its fields:
   carries the state as well as the frame, since states share frames. It carries no position, which
   is why the `FillNow` rule is checked by eye rather than by a replay.
 - `CSNAP_MAP`: the map's name, the MD5 of its lumps (`RecorderLevelChecksum`) and, from v17, the
-  position frame `SnapJoin` carried (`ClientMapFrame`): three 32-bit origins and three widths. The
-  reader returns it as `mapFrame`, the narrow frame at origin 0 for an older file, and refuses a
-  width this build has no encoding for, or a wide one before v18, whose payloads were only ever
-  narrow.
+  position frame `SnapJoin` carried (`ClientMapFrame`): three 32-bit origins and three widths,
+  and from v19 the mover record's index width beside them. The reader returns it as `mapFrame`,
+  the narrow frame at origin 0 for an older file, and refuses a width this build has no
+  encoding for, a wide position before v18, whose payloads were only ever narrow, or an index
+  width that is neither `SNAPMV_INDEX_NARROW` nor `SNAPMV_INDEX_WIDE`, which would read every
+  envelope after it at the wrong stride.
 
 The cvar block is a count, then each setting's name and value; it is matched by name, so its order
 means nothing. The set is `g_csnapCvarNames`: every client setting the sampler, the smoothing and
@@ -55,6 +57,9 @@ version of their own; `CSNAP_VERSION_MIN` is the oldest still read:
   payloads unchanged, so v14 to v16 replay in the narrow frame at origin 0 they were recorded in.
 - v18: wire v34 payloads, whose positions are wide on a wide frame axis; a narrow frame's payloads
   are v17's.
+- v19: wire v35 payloads, whose mover envelope carries a four-byte sector index on a map of
+  more than 65,535 sectors, and the width that says which, in `CSNAP_MAP`. A map within the
+  narrow width is v18's, byte for byte.
 
 The property event this port added moved neither version: it is self-describing, so a reader that
 does not know it steps over it by its length ([format.md](format.md)).

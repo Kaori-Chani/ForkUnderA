@@ -24,7 +24,7 @@
 
 #define CSNAP_MAGIC			"CSNP"
 // Moves with every wire change a decoder cannot skip (history in record.md).
-#define CSNAP_VERSION		18
+#define CSNAP_VERSION		19
 #define CSNAP_VERSION_MIN	14
 
 // Record kinds, by a kind byte, as deltas and frames interleave on two clocks.

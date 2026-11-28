@@ -570,7 +570,7 @@ TEST(SnapshotFormat, AMoverRecordRoundTripsThroughTheDecodersWalk)
 	const unsigned int bn = WriteMoverPlat(body, a);
 	BYTE mrec[SNAP_MAX_EVENT_BYTES];
 	const unsigned int rn = WriteMoverBody(mrec, SNAPMV_PLAT, SNAPMVF_BLOCKED, 4242, 0xA5,
-		body, bn);
+		body, bn, SNAPMV_INDEX_NARROW);
 	ASSERT_EQ((unsigned int)SNAPMV_PLAT_BYTES, bn);
 	ASSERT_LE(rn, (unsigned int)SNAP_MAX_EVENT_BYTES);
 
@@ -584,10 +584,11 @@ TEST(SnapshotFormat, AMoverRecordRoundTripsThroughTheDecodersWalk)
 
 	const BYTE * const p = mrec + 1 + 1;	// past mask, past length
 	BYTE cls = 0, mflags = 0, gen = 0;
-	WORD index = 0;
+	unsigned int index = 0;
 	SnapMoverPlat b;
 	memset(&b, 0, sizeof(b));
-	ReadMoverHeader(p, MoverHeaderBytes(ZSNAP_VERSION), cls, mflags, index, gen);
+	ReadMoverHeader(p, MoverHeaderBytes(ZSNAP_VERSION, SNAPMV_INDEX_NARROW),
+		SNAPMV_INDEX_NARROW, cls, mflags, index, gen);
 	ReadMoverPlat(p + SNAPMV_HEADER_BYTES, b);
 	EXPECT_EQ(SNAPMV_PLAT, cls);
 	EXPECT_EQ(SNAPMVF_BLOCKED, mflags);
@@ -595,6 +596,53 @@ TEST(SnapshotFormat, AMoverRecordRoundTripsThroughTheDecodersWalk)
 	EXPECT_EQ(0xA5, gen);
 	EXPECT_EQ(n - 1, SNAPMV_HEADER_BYTES + MoverBodyBytes(cls, mflags));
 	EXPECT_EQ(0, memcmp(&a, &b, sizeof(a)));
+}
+
+// [Kaori-Chani] A sector index past 65,535, which needs the wide envelope: no fixture map has
+// that many sectors, so the width the join carries is tested here rather than on a map.
+TEST(SnapshotFormat, AWideSectorIndexRoundTripsThroughAWideEnvelope)
+{
+	SnapMoverPlat a;
+	memset(&a, 0, sizeof(a));
+	a.speed = 4096; a.low = -4096; a.high = 4096; a.planeD = -1;
+	a.wait = 105; a.count = 1; a.tag = 7; a.platID = 3; a.crush = -1;
+	a.status = 1; a.oldStatus = 0; a.type = 2;
+
+	BYTE body[SNAPMV_BODY_MAX];
+	const unsigned int bn = WriteMoverPlat(body, a);
+	BYTE mrec[SNAP_MAX_EVENT_BYTES];
+	const unsigned int index = 70000;
+	const unsigned int rn = WriteMoverBody(mrec, SNAPMV_PLAT, 0, index, 0x5A,
+		body, bn, SNAPMV_INDEX_WIDE);
+
+	// Two bytes more than the narrow envelope, all of them the index's.
+	EXPECT_EQ((unsigned int)(SNAPMV_HEADER_BYTES + 2), MoverHeaderBytes(ZSNAP_VERSION,
+		SNAPMV_INDEX_WIDE));
+	EXPECT_EQ(rn, 2 + MoverHeaderBytes(ZSNAP_VERSION, SNAPMV_INDEX_WIDE) + bn);
+
+	SnapFrame wide = FrameNarrow();
+	wide.indexBytes = SNAPMV_INDEX_WIDE;
+	unsigned int n = 0;
+	bool bSkip = true;
+	const BYTE type = (BYTE)(mrec[0] & SNAPEV_TYPEMASK);
+	ASSERT_EQ(SNAPEVLEN_OK, EventRecordBytes(wide, type, mrec + 1, rn - 1, n, bSkip));
+	ASSERT_EQ(rn - 1, n);
+
+	const BYTE * const p = mrec + 1 + 1;	// past mask, past length
+	BYTE cls = 0, mflags = 0, gen = 0;
+	unsigned int got = 0;
+	ReadMoverHeader(p, MoverHeaderBytes(ZSNAP_VERSION, SNAPMV_INDEX_WIDE),
+		SNAPMV_INDEX_WIDE, cls, mflags, got, gen);
+	EXPECT_EQ(SNAPMV_PLAT, cls);
+	EXPECT_EQ(index, got);
+	EXPECT_EQ(0x5A, gen);
+
+	// Read at the narrow width the same bytes give 4,464 -- the index's low two -- which
+	// is why the width is carried rather than assumed.
+	unsigned int narrow = 0;
+	ReadMoverHeader(p, MoverHeaderBytes(ZSNAP_VERSION, SNAPMV_INDEX_NARROW),
+		SNAPMV_INDEX_NARROW, cls, mflags, narrow, gen);
+	EXPECT_EQ(70000u & 0xFFFFu, narrow);
 }
 
 // [Kaori-Chani] A polyobject body with one entry of every shape, walked by the reader's own path:
@@ -621,11 +669,12 @@ TEST(SnapshotFormat, APolyobjectBodyRoundTripsInBothFrames)
 		const unsigned int bn = WriteMoverPoly(body, fr, a);
 		BYTE mrec[SNAP_MAX_EVENT_BYTES];
 		const unsigned int rn = WriteMoverBody(mrec, SNAPMV_POLY, SNAPMVF_BLOCKED, 17, 0x5A,
-			body, bn);
+			body, bn, fr.indexBytes);
 		const BYTE * const p = mrec + 1 + 1;	// past mask, past length
 		BYTE cls = 0, mflags = 0, gen = 0;
-		WORD index = 0;
-		ReadMoverHeader(p, SNAPMV_HEADER_BYTES, cls, mflags, index, gen);
+		unsigned int index = 0;
+		ReadMoverHeader(p, SNAPMV_HEADER_BYTES, fr.indexBytes, cls, mflags, index,
+			gen);
 		const unsigned int want = MoverRecordBodyBytes(fr, cls, mflags,
 			p + SNAPMV_HEADER_BYTES, rn - 2 - SNAPMV_HEADER_BYTES);
 		SnapMoverPoly b;
@@ -1143,7 +1192,11 @@ TEST(SnapshotFormat, TheZsnapHeaderCarriesTheFrameFromVersion33)
 {
 	EXPECT_EQ((unsigned int)ZSNAP_HEADER_SIZE, ZsnapHeaderBytes(32));
 	EXPECT_EQ((unsigned int)(ZSNAP_HEADER_SIZE + ZSNAP_HEADER_FRAME), ZsnapHeaderBytes(33));
-	EXPECT_EQ((unsigned int)(ZSNAP_HEADER_SIZE + ZSNAP_HEADER_FRAME),
+	EXPECT_EQ((unsigned int)(ZSNAP_HEADER_SIZE + ZSNAP_HEADER_FRAME), ZsnapHeaderBytes(34));
+	// From v35 the mover index's width rides with the frame, one byte more.
+	EXPECT_EQ((unsigned int)(ZSNAP_HEADER_SIZE + ZSNAP_HEADER_FRAME + 1),
+		ZsnapHeaderBytes(35));
+	EXPECT_EQ((unsigned int)(ZSNAP_HEADER_SIZE + ZSNAP_HEADER_FRAME35),
 		ZsnapHeaderBytes(ZSNAP_VERSION));
 }
 
@@ -1894,4 +1947,24 @@ TEST(SnapshotFormat, APillarBodyRoundTripsEveryField)
 	EXPECT_EQ(a.type, b.type);
 	EXPECT_EQ(a.hexencrush, b.hexencrush);
 	EXPECT_EQ(a.blocked, b.blocked) << "which plane stalled";
+}
+
+// [Kaori-Chani] The map-reset count's wrap. A client and a datagram 128 or more apart read
+// the sign backwards, which is the limit this states rather than leaves to be found.
+TEST(SnapshotFormat, AResetCountIsAheadOrBehindAcrossItsWrap)
+{
+	EXPECT_EQ(0, ResetAhead(7, 7)) << "the same reset";
+	EXPECT_EQ(1, ResetAhead(8, 7));
+	EXPECT_EQ(-1, ResetAhead(7, 8));
+
+	// The turn, which is what the difference exists for: 0 is one past 255.
+	EXPECT_EQ(1, ResetAhead(0, 255));
+	EXPECT_EQ(-1, ResetAhead(255, 0));
+	EXPECT_EQ(2, ResetAhead(1, 255));
+
+	// The limit: 127 ahead still reads ahead, 128 reads behind. A client that far behind
+	// has timed out and rejoined with a fresh count, which is why this is not widened.
+	EXPECT_EQ(127, ResetAhead(127, 0));
+	EXPECT_EQ(-128, ResetAhead(128, 0));
+	EXPECT_EQ(-127, ResetAhead(129, 0));
 }

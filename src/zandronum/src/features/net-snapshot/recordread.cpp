@@ -297,6 +297,20 @@ ESnapReadResult zx::netsnapshot::CsnapReadRecord(CsnapReader& reader)
 				reader.mapFrame.origin[k] = (int)(SDWORD)origin[k];
 				reader.mapFrame.width[k] = width[k];
 			}
+			// From v19 the mover record's index width follows, which sizes every envelope
+			// after this record; an older file was written narrow.
+			if (reader.version >= 19)
+			{
+				BYTE indexBytes = 0;
+				if (clrec_ReadExact(reader, &indexBytes, 1) == false)
+					return SNAPREAD_TRUNCATED;
+				if ((indexBytes != SNAPMV_INDEX_NARROW) && (indexBytes != SNAPMV_INDEX_WIDE))
+				{
+					reader.error = "unsupported mover index width";
+					return SNAPREAD_ERROR;
+				}
+				reader.mapFrame.indexBytes = indexBytes;
+			}
 		}
 		reader.kind = CSNAP_MAP;
 		return SNAPREAD_OK;

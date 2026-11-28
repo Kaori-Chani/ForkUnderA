@@ -14,7 +14,8 @@ doc's [Appendix B](design.md#appendix-b--the-zsnap-fixture-format). The writer i
 ## Data structures
 
 - `SnapStreamReader`: the open file, the header's version, tic rate, flags and map frame (narrow at
-  origin 0 before v33, wide on an axis only from v34), and after each read the record's tic, wall
+  origin 0 before v33, wide on an axis only from v34, carrying the mover index's width from
+  v35), and after each read the record's tic, wall
   time, span and payload. The payload points into the reader's own buffers, valid until the next
   read.
 - `ESnapReadResult`: `SNAPREAD_OK`, `SNAPREAD_END` (clean end), `SNAPREAD_TRUNCATED` (the file ends

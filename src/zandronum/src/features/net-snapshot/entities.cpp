@@ -640,7 +640,7 @@ void zx::netsnapshot::AnchorMapStamp(BYTE stamp)
 }
 
 void zx::netsnapshot::SetMapFrame(int originX, int originY, int originZ, int widthX, int widthY,
-	int widthZ)
+	int widthZ, int widthSector)
 {
 	SnapFrame f = FrameNarrow();
 	const int origin[3] = { originX, originY, originZ };
@@ -655,6 +655,17 @@ void zx::netsnapshot::SetMapFrame(int originX, int originY, int originZ, int wid
 		else
 			g_mapFrameUnknown = true;
 	}
+	// The sector index's width the same way: an unknown one would misread every mover
+	// record's envelope, so the map is refused rather than read at the wrong stride.
+	if ((widthSector == SNAPMV_INDEX_NARROW) || (widthSector == SNAPMV_INDEX_WIDE))
+		f.indexBytes = (BYTE)widthSector;
+	else
+	{
+		g_mapFrameUnknown = true;
+		Printf("snapshot: the server's mover index is %d bytes, which this build "
+			"does not read; this map's snapshots are refused\n", widthSector);
+	}
+
 	// No reader can size an unknown width, so the map is refused: an empty world
 	// rather than every position misread.
 	if (g_mapFrameUnknown)
@@ -1281,15 +1292,17 @@ static void clent_ApplyEvent(WORD id, BYTE type, const BYTE * pPayload,
 			++g_moverNoSink;
 			return;
 		}
-		const unsigned int hdrBytes = MoverHeaderBytes(g_streamVersion);
+		const unsigned int hdrBytes = MoverHeaderBytes(g_streamVersion,
+			g_mapFrame.indexBytes);
 		if (payloadBytes < hdrBytes)
 		{
 			++g_moverBad;
 			return;
 		}
 		BYTE cls = 0, mflags = 0, gen = 0;
-		WORD index = 0;
-		ReadMoverHeader(pPayload, hdrBytes, cls, mflags, index, gen);
+		unsigned int index = 0;
+		ReadMoverHeader(pPayload, hdrBytes, g_mapFrame.indexBytes, cls, mflags, index,
+			gen);
 		// A polyobject's length is walked from its body, bounded by the payload.
 		const unsigned int bodyBytes = MoverRecordBodyBytes(g_mapFrame, cls, mflags,
 			pPayload + hdrBytes, payloadBytes - hdrBytes);

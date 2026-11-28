@@ -132,7 +132,14 @@ checksum. `stream.h` reads a `.zsnap`, the server's recording, whose records are
   around a map reset is worth. Two counts, the two sides of one comparison: the datagram's,
   stamped on every snapshot (`MoverBeginDatagram`), says which generation the records describe,
   and the client's own, set by `MoverSetResetCount`, says which reset it has carried out. The
-  sink subtracts them as a signed byte: behind is dropped, ahead is held, equal applies.
+  sink subtracts them as a signed byte (`ResetAhead` in `format.h`, shared with the hold's
+  replay): behind is dropped, ahead is held, equal applies. The count is a byte, so that
+  difference holds while the two are under 128 apart; 128 or more behind and a client
+  reads the sign backwards, dropping newer records and holding older ones. It cannot get
+  there -- every reset sends its count on the reliable channel, and a client that misses
+  128 of them has timed out and rejoined with a fresh count -- so the width stands and
+  the limit is written down instead. The map stamp has the same shape and the same 127:
+  a byte in `SnapJoin`, compared as a signed byte in `join_compute.cpp`.
   - The client's side needs a count at the moment its reset window closes, and the legacy
     `DestroyAllSectorMovers` carries no fields. The reference added one to it; this port sends
     `SnapMapReset` instead, gate-on only, from `snap_SendResetEnd()` straight after that command
@@ -331,7 +338,9 @@ Each hook is one call from a stock file into the module, listed here as it lands
     server with the legacy mover gate on, so a `nolegacy 0` server sends nothing for
     `OnDoorSound` to discard. The module holds the send, leaving `p_doors.cpp` no replication
     crossing to allow, and the sender is written against `OnDoorSound`'s own hand parse, so
-    there is no protocolspec entry and the golden does not move.
+    it has no protocolspec entry. It does have a golden line: the snapshot reads the fields
+    a hand-framed sender writes as well as the spec's, so this one reads `SVC2_DOORSOUND :
+    Short Byte` and a width change in it moves `tools/data/protocol-snapshot.txt`.
 - `cl_main.cpp`, `client_DoFloor`, `client_DestroyFloor`, `client_ChangeFloorDirection`,
   `client_ChangeFloorType`, `client_ChangeFloorDestDist`, `client_BuildStair`:
   `MoverLegacyStandsAside( SNAPMV_FLOOR )`, each after that handler's last read. `client_DoFloor`
@@ -872,11 +881,13 @@ result; one CTest case runs the tool for each of the three.
 
 `snap_fuzz` lives at `tests/snapfuzz/fuzz.cpp` rather than here: a non-engine program with its own
 `main`, whose sanitizers are build flags that must not reach the rest of the test binary. It is
-built behind `ZANDROX_SNAP_FUZZ` on GCC and Clang, with `ZANDROX_SNAP_FUZZ_LIBFUZZER` for the
-libFuzzer mode, and CTest runs 20,000 inputs at its fixed seed plus the wide-reference mode on every
-build. The long runs on both widths are a gate someone runs by hand.
+built behind `ZANDROX_SNAP_FUZZ` on every toolchain, MSVC included, with
+`ZANDROX_SNAP_FUZZ_LIBFUZZER` for the libFuzzer mode. CTest runs the wide-reference mode and its
+compare everywhere, and the 20,000-input seeded run off MSVC, where a temp file an input through a
+virus scanner takes 83 s against 1.4 s sanitized. The long runs on both widths are a gate someone
+runs by hand.
 
-`--wide-reference` writes a fresh wide reference and reads it back. It is not compared with the
-committed `ref-wide.csnap` and cannot be: the generator fills its structs a byte at a time from one
-deterministic stream, and `SnapMoverPlat` is 48 bytes here where a 32-bit `fixed_t` made it 32, so
-every draw from the first mover record on differs. The committed copy stays the reference.
+`--wide-reference` writes a fresh wide reference and reads it back, and
+`snap_fuzz_wide_reference_matches` holds those bytes to the committed `ref-wide.csnap`, so the
+generator and the shipped file cannot drift apart. Reshipping it is a deliberate act: the two
+digests in `refdump_test.cpp` move with it.

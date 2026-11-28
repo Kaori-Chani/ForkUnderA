@@ -1,6 +1,6 @@
 # formattest: the codec's tests, and the two offline targets
 
-Covers: src/zandronum/src/features/net-snapshot/formattest.cpp, src/zandronum/src/features/net-snapshot/format_test.cpp, src/zandronum/src/features/net-snapshot/refdump_test.cpp, src/zandronum/src/features/net-snapshot/moversound_wire_nettest.cpp, tests/snapdump/snapdump.h, tests/snapdump/snapdump.cpp, tests/snapdump/main.cpp, tests/snapdump/snapdump_test.cpp
+Covers: src/zandronum/src/features/net-snapshot/formattest.cpp, src/zandronum/src/features/net-snapshot/format_test.cpp, src/zandronum/src/features/net-snapshot/refdump_test.cpp, src/zandronum/src/features/net-snapshot/moversound_wire_nettest.cpp, src/zandronum/src/features/net-snapshot/datagram_wire_nettest.cpp, tests/snapdump/snapdump.h, tests/snapdump/snapdump.cpp, tests/snapdump/main.cpp, tests/snapdump/snapdump_test.cpp
 
 ## Responsibility
 
@@ -15,6 +15,10 @@ second copy of the assertions to drift:
 - the three sector-keyed mover sounds' bytes are **`moversound_wire_nettest.cpp`**, which models
   SVC2_DOORSOUND, SVC2_MOVERSOUND and SVC2_FLOORSOUND on `BYTESTREAM_s` and runs in
   `zandrox_tests_net` (the `_nettest.cpp` suffix routes it there);
+- SVC2_SNAPSHOT's datagram header is **`datagram_wire_nettest.cpp`**, which pins its nineteen
+  bytes and ties them to `SNAP_PACKET_OVERHEAD`: the prefix, the header and the slack come to
+  27, the constant is 28, and the byte between them is the rounding a widening would spend, so
+  a field added here fails the test until someone looks at the constant;
 - the fuzzer is the **`snap_fuzz`** target over `tests/snapfuzz/fuzz.cpp` ([fuzz.md](fuzz.md));
 - the dumper is the **`snap_dump`** target over `tests/snapdump/`, whose body the reference test
   calls, so a dump taken by hand is the dump the test takes.
@@ -42,7 +46,8 @@ all ([selftest.md](selftest.md), [entities.md](entities.md)).
 `refdump_test.cpp` holds three recordings to their dumps' SHA-256, each recording's own digest
 checked first so a damaged or mistaken file fails as the wrong file rather than as a decode
 difference. `testdata/ref-wide.csnap` ships in the repo at 67 KB and runs on every build, being the
-only reference with wide frames and non-zero origins; `ref.zsnap` and `ref.csnap` are 61 MB with
+only reference with wide frames, non-zero origins and four-byte mover indices;
+`ref.zsnap` and `ref.csnap` are 61 MB with
 their dumps and stay out, so those two run only with `ZX_SNAP_REFDIR` set and report that a skip is
 not a pass ([tools.md](tools.md)).
 

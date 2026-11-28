@@ -259,6 +259,8 @@ static void clrec_WriteMap()
 		clrec_Write32((DWORD)frame.origin[k]);
 	for (unsigned int k = 0; k < 3; ++k)
 		clrec_Write8(frame.width[k]);
+	// From v19: the mover record's index width, which sizes every envelope after this.
+	clrec_Write8(frame.indexBytes);
 	++g_recRecords;
 }
 

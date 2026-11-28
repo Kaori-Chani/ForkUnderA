@@ -278,10 +278,12 @@ void zx::netsnapshot::OnSnapshot( BYTESTREAM_s * pByteStream )
 // their own from the DoDoor and ChangeDoorDirection they handle.
 void zx::netsnapshot::OnDoorSound( BYTESTREAM_s *pByteStream )
 {
-	const int sectorID = pByteStream->ReadShort();
+	const int sectorID = pByteStream->ReadLong();
 	const int choice = pByteStream->ReadByte();
 
-	if (( sectorID < 0 ) || ( sectorID >= numsectors )
+	// A packet cut after the sector reads the choice as -1, which played choice 3 with
+	// the check-sequence flag; a negative sector is a cut or an index this map lacks.
+	if (( sectorID < 0 ) || ( sectorID >= numsectors ) || ( choice < 0 )
 		|| ( MoverSuppressesLegacy( SNAPMV_DOOR ) == false ))
 		return;
 
@@ -295,10 +297,11 @@ void zx::netsnapshot::OnDoorSound( BYTESTREAM_s *pByteStream )
 // are gated. One kind per class, the plat's arriving with that class.
 void zx::netsnapshot::OnMoverSound( BYTESTREAM_s *pByteStream )
 {
-	const int sectorID = pByteStream->ReadShort();
+	const int sectorID = pByteStream->ReadLong();
 	const int packed = pByteStream->ReadByte();
 
-	if (( sectorID < 0 ) || ( sectorID >= numsectors ))
+	// The packed byte cut short reads -1, which matches no kind today and is refused anyway.
+	if (( sectorID < 0 ) || ( sectorID >= numsectors ) || ( packed < 0 ))
 		return;
 
 	if (( SNAPSND_KIND( packed ) == SNAPSND_CEILING )
@@ -320,7 +323,7 @@ void zx::netsnapshot::OnMoverSound( BYTESTREAM_s *pByteStream )
 // own SVC_STARTFLOORSOUND carries it, which this client can key on its mover.
 void zx::netsnapshot::OnFloorSound( BYTESTREAM_s *pByteStream )
 {
-	const int sectorID = pByteStream->ReadShort();
+	const int sectorID = pByteStream->ReadLong();
 
 	if (( sectorID < 0 ) || ( sectorID >= numsectors )
 		|| ( MoverSuppressesLegacy( SNAPMV_FLOOR ) == false ))

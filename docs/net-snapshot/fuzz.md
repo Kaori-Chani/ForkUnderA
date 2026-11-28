@@ -73,20 +73,22 @@ snap_fuzz --wide-reference <out.csnap>
 ```
 
 `--wide-reference` writes the reference set's wide recording and exits: a current `.csnap` with a
-map record in each of the eight frames `FuzzFrame` names, the narrow one first, a reset between
-them, and after each 48 deltas from `FuzzSeedPayload` in that map's frame, with frames, mirrors and
+map record in each of the sixteen frames `FuzzFrame` names, the narrow one first, a reset between
+them, and after each 24 deltas from `FuzzSeedPayload` in that map's frame, with frames, mirrors and
 a changed cvar block between them. It draws from a fixed seed (`WIDE_REFERENCE_SEED`), so the file
 is the same on every run. A frame's camera pose is drawn within 32 bits, which the reader's
 `fixed_t` holds before and after the 48.16 port alike. The file and its `snap_dump` output are the
-reference for the paths the two recorded maps never reach: a nonzero origin and the 3-byte axes.
+reference for the paths the two recorded maps never reach: a nonzero origin, the 3-byte axes and
+the 4-byte mover index, which eight of its sixteen blocks carry.
 That is the file `testdata/ref-wide.csnap` holds, and the file CI walks with the Python readers
 ([tools.md](tools.md)).
 
 With a directory it writes the seeds there for a libFuzzer run and exits, and writes each container
 seed again without its selector byte, as `seedNN.csnap` or `seedNN.zsnap`, so the offline readers
 can open the same files, narrow and wide. The low three bits of each input's first byte pick the
-target, the next bit the payload's stream version, current or pre-v28, and the three above it the
-axes a payload or cosmetic input is wide on (`FuzzFrame`); a container's frame comes from its file.
+target, the next bit the payload's stream version, current or pre-v28, and the four above it the
+axes a payload or cosmetic input is wide on and whether its mover index is four bytes
+(`FuzzFrame`); a container's frame comes from its file.
 Every other round of seeds is wide, and the reached line counts the walks in a wide frame:
 - **a payload** (four of the eight values): a walk that mirrors `ApplyDelta`'s and
   `clent_ApplyEvent`'s call for call, running every reader the client may reach whatever ghost state

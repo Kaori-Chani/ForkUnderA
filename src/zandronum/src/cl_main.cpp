@@ -7794,7 +7794,8 @@ void ServerCommands::ACSScriptExecute::Execute()
 	}
 
 	line_t* line;
-	if (( lineid <= 0 ) || ( lineid >= numlines ))
+	// [Kaori-Chani] Below 0 is no line, as the senders write it; line 0 is a line.
+	if (( lineid < 0 ) || ( lineid >= numlines ))
 		line = NULL;
 	else
 		line = &lines[lineid];
@@ -8620,7 +8621,7 @@ static void client_DoDoor( BYTESTREAM_s *pByteStream )
 	DDoor			*pDoor;
 
 	// Read in the sector ID.
-	lSectorID = pByteStream->ReadShort();
+	lSectorID = pByteStream->ReadLong();
 
 	// Read in the door type.
 	type = pByteStream->ReadByte();
@@ -8753,7 +8754,7 @@ static void client_DoFloor( BYTESTREAM_s *pByteStream )
 	lType = pByteStream->ReadByte();
 
 	// Read in the sector ID.
-	lSectorID = pByteStream->ReadShort();
+	lSectorID = pByteStream->ReadLong();
 
 	// Read in the direction of the floor.
 	lDirection = pByteStream->ReadByte();
@@ -8951,7 +8952,7 @@ static void client_BuildStair( BYTESTREAM_s *pByteStream )
 	int Type = pByteStream->ReadByte();
 
 	// Read in the sector ID.
-	int SectorID = pByteStream->ReadShort();
+	int SectorID = pByteStream->ReadLong();
 
 	// Read in the direction of the floor.
 	int Direction = static_cast<SBYTE>( pByteStream->ReadByte() );
@@ -9039,7 +9040,7 @@ static void client_DoCeiling( BYTESTREAM_s *pByteStream )
 	lType = pByteStream->ReadByte();
 
 	// Read in the sector this ceiling is attached to.
-	lSectorID = pByteStream->ReadShort();
+	lSectorID = pByteStream->ReadLong();
 
 	// Read in the direction this ceiling is moving in.
 	lDirection = pByteStream->ReadByte();
@@ -9222,7 +9223,7 @@ static void client_DoPlat( BYTESTREAM_s *pByteStream )
 	lType = pByteStream->ReadByte();
 
 	// Read in the sector ID.
-	lSectorID = pByteStream->ReadShort();
+	lSectorID = pByteStream->ReadLong();
 
 	// Read in the plat status (moving up, down, etc.).
 	lStatus = pByteStream->ReadByte();
@@ -9382,7 +9383,7 @@ static void client_DoElevator( BYTESTREAM_s *pByteStream )
 	lType = pByteStream->ReadByte();
 
 	// Read in the sector ID.
-	lSectorID = pByteStream->ReadShort();
+	lSectorID = pByteStream->ReadLong();
 
 	// Read in the speed.
 	lSpeed = pByteStream->ReadLong();
@@ -9501,7 +9502,7 @@ static void client_DoPillar( BYTESTREAM_s *pByteStream )
 	lType = pByteStream->ReadByte();
 
 	// Read in the sector ID.
-	lSectorID = pByteStream->ReadShort();
+	lSectorID = pByteStream->ReadLong();
 
 	// Read in the speeds.
 	lFloorSpeed = pByteStream->ReadLong();
@@ -9596,7 +9597,7 @@ static void client_DoWaggle( BYTESTREAM_s *pByteStream )
 	bCeiling = !!pByteStream->ReadByte();
 
 	// Read in the sector ID.
-	lSectorID = pByteStream->ReadShort();
+	lSectorID = pByteStream->ReadLong();
 
 	// Read in the waggle's attributes.
 	lOriginalDistance = pByteStream->ReadLong();
@@ -10437,13 +10438,20 @@ static void client_CreateTranslation( BYTESTREAM_s *pByteStream )
 static void client_DoPusher( BYTESTREAM_s *pByteStream )
 {
 	const ULONG ulType = pByteStream->ReadByte();
-	const int iLineNum = pByteStream->ReadShort();
+	const int iLineNum = pByteStream->ReadLong();
 	const int iMagnitude = pByteStream->ReadLong();
 	const int iAngle = pByteStream->ReadLong();
 	const unsigned short sourceNetID = pByteStream->ReadShort();
-	const int iAffectee = pByteStream->ReadShort();
+	const int iAffectee = pByteStream->ReadLong();
 
 	line_t *pLine = ( iLineNum >= 0 && iLineNum < numlines ) ? &lines[iLineNum] : NULL;
+	// [Kaori-Chani] features/net-snapshot: DPusher::Tick reads sectors + m_Affectee, so an
+	// index this client cannot hold is refused here rather than dereferenced there.
+	if (( iAffectee < 0 ) || ( iAffectee >= numsectors ))
+	{
+		CLIENT_PrintWarning( "client_DoPusher: couldn't find sector: %d\n", iAffectee );
+		return;
+	}
 	new DPusher ( static_cast<DPusher::EPusher> ( ulType ), pLine, iMagnitude, iAngle, CLIENT_FindThingByNetID( sourceNetID ), iAffectee );
 
 	// [Kaori-Chani] features/net-snapshot: one point pusher the join built, counted whether
@@ -10621,7 +10629,8 @@ void ServerCommands::SetDominationPointState::Execute()
 // the frame goes first, so a recording's map record carries it.
 void ServerCommands::SnapJoin::Execute()
 {
-	zx::netsnapshot::SetMapFrame( originX, originY, originZ, widthX, widthY, widthZ );
+	zx::netsnapshot::SetMapFrame( originX, originY, originZ, widthX, widthY, widthZ,
+		widthSector );
 	zx::netsnapshot::AnchorMapStamp( static_cast<BYTE>( mapStamp ));
 	zx::netsnapshot::MoverSetResetCount( static_cast<BYTE>( resetCount ));
 }

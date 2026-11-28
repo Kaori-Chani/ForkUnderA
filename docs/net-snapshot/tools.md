@@ -96,13 +96,15 @@ Two counts stand apart at the end of that line, and they mean different things:
   `SNAPMV_ANIMDOOR`: an animated door is replicated by its effects, so `MoverClassTracked` leaves
   it out and nothing ever writes a body under it.
 
-The committed wide reference is where the second shows. `testdata/ref-wide.csnap` carries 264 mover
-records -- 43 plat, 34 floor, 37 elevator, 28 pillar, 35 ceiling, 31 door, 27 poly, and 29 under
-class 6 -- and those 29 read as the class with no body here. **The C++ decode is the authority and
-agrees exactly**: `snap_dump` over the same file marks the same 29 records `bad=1` and prints their
-raw bytes, every other class decoding into fields, and the walk steps over each by the event's
-length byte. They are an artefact of how that reference was generated, which writes a body under
-every class value; `ref.csnap`, a recording a build made, reports 0 of both.
+The committed wide reference is where the second shows. `testdata/ref-wide.csnap` carries 270
+mover records -- 36 plat, 41 floor, 28 elevator, 38 pillar, 35 ceiling, 29 door, 26 poly, and 37
+under class 6 -- and those 37 read as the class with no body here. **The C++ decode is the
+authority and agrees exactly**: `snap_dump` over the same file marks the same 37 records `bad=1`
+and prints their raw bytes, every other class decoding into fields, and the walk steps over each
+by the event's length byte. 126 of the 270 sit in the eight blocks with a 4-byte index and name a
+sector past 65,535, which no map in either recording does. The 37 are an artefact of how that
+reference is generated, which writes a body under every class value; `ref.csnap`, a recording a
+build made, reports 0 of both.
 
 ## wide_count.py
 
