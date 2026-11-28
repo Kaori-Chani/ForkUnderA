@@ -132,7 +132,14 @@ checksum. `stream.h` reads a `.zsnap`, the server's recording, whose records are
   around a map reset is worth. Two counts, the two sides of one comparison: the datagram's,
   stamped on every snapshot (`MoverBeginDatagram`), says which generation the records describe,
   and the client's own, set by `MoverSetResetCount`, says which reset it has carried out. The
-  sink subtracts them as a signed byte: behind is dropped, ahead is held, equal applies.
+  sink subtracts them as a signed byte (`ResetAhead` in `format.h`, shared with the hold's
+  replay): behind is dropped, ahead is held, equal applies. The count is a byte, so that
+  difference holds while the two are under 128 apart; 128 or more behind and a client
+  reads the sign backwards, dropping newer records and holding older ones. It cannot get
+  there -- every reset sends its count on the reliable channel, and a client that misses
+  128 of them has timed out and rejoined with a fresh count -- so the width stands and
+  the limit is written down instead. The map stamp has the same shape and the same 127:
+  a byte in `SnapJoin`, compared as a signed byte in `join_compute.cpp`.
   - The client's side needs a count at the moment its reset window closes, and the legacy
     `DestroyAllSectorMovers` carries no fields. The reference added one to it; this port sends
     `SnapMapReset` instead, gate-on only, from `snap_SendResetEnd()` straight after that command

@@ -167,6 +167,11 @@ Events:
 Movers:
 - `WriteMover*` (9) and `ReadMover*` (8): the envelope, one per class, and on the write side the
   whole event body with its length byte.
+- `ResetAhead`: how far one map-reset count is ahead of another, as a signed 8-bit
+  difference, so the comparison survives the count's wrap. Behind is negative, ahead
+  positive, the same reset 0, and the byte sets the limit: 127 apart still reads ahead,
+  128 reads behind. Both sides of the mover hold use this one copy (`movers.cpp`), and
+  the map stamp's comparison in `join_compute.cpp` has the same shape and limit.
 - `MoverHeaderBytes`: the envelope's width for a stream version (pre-v28 has no generation).
 - `MoverBodyBytes`, `MoverRecordBodyBytes`: a body's length by class and flags, walked for a
   polyobject; 0 refuses the record.

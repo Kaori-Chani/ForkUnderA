@@ -1615,6 +1615,13 @@ inline bool MoverClassTracked(unsigned int cls)
 
 namespace zx { namespace netsnapshot {
 
+// [Kaori-Chani] The server's map-reset count is a byte and wraps, so how far one count is
+// ahead of another is their signed 8-bit difference, which holds while they are under 128 apart.
+inline int ResetAhead(BYTE count, BYTE against)
+{
+	return (int)(SBYTE)(BYTE)(count - against);
+}
+
 // The envelope's width for a stream version and the map's index width: class, flags, index
 // and the generation (never 0), which a pre-v28 envelope lacks and reads as 0.
 inline unsigned int MoverHeaderBytes(unsigned int version, unsigned int indexBytes)

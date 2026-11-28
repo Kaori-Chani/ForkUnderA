@@ -1554,7 +1554,7 @@ static void snapmv_MoverSink( BYTE cls, BYTE flags, BYTE gen, unsigned int index
 	const bool bHave = snapmv_HaveResetCount( );
 	if ( g_inDatagram && bHave )
 	{
-		const int ahead = (SBYTE)(BYTE)( g_datagramResetCount - g_moverResetCount );
+		const int ahead = ResetAhead( g_datagramResetCount, g_moverResetCount );
 		if ( ahead < 0 )
 		{
 			++g_moverBeforeReset;
@@ -1668,7 +1668,7 @@ void zx::netsnapshot::MoverSetResetCount( BYTE count )
 		const SnapMoverHeld h = g_moverHold[i];
 		if ( h.bCounted )
 		{
-			const int ahead = (SBYTE)(BYTE)( h.resetCount - count );
+			const int ahead = ResetAhead( h.resetCount, count );
 			if ( ahead < 0 )
 			{
 				++g_moverHoldDropped;

@@ -1948,3 +1948,23 @@ TEST(SnapshotFormat, APillarBodyRoundTripsEveryField)
 	EXPECT_EQ(a.hexencrush, b.hexencrush);
 	EXPECT_EQ(a.blocked, b.blocked) << "which plane stalled";
 }
+
+// [Kaori-Chani] The map-reset count's wrap. A client and a datagram 128 or more apart read
+// the sign backwards, which is the limit this states rather than leaves to be found.
+TEST(SnapshotFormat, AResetCountIsAheadOrBehindAcrossItsWrap)
+{
+	EXPECT_EQ(0, ResetAhead(7, 7)) << "the same reset";
+	EXPECT_EQ(1, ResetAhead(8, 7));
+	EXPECT_EQ(-1, ResetAhead(7, 8));
+
+	// The turn, which is what the difference exists for: 0 is one past 255.
+	EXPECT_EQ(1, ResetAhead(0, 255));
+	EXPECT_EQ(-1, ResetAhead(255, 0));
+	EXPECT_EQ(2, ResetAhead(1, 255));
+
+	// The limit: 127 ahead still reads ahead, 128 reads behind. A client that far behind
+	// has timed out and rejoined with a fresh count, which is why this is not widened.
+	EXPECT_EQ(127, ResetAhead(127, 0));
+	EXPECT_EQ(-128, ResetAhead(128, 0));
+	EXPECT_EQ(-127, ResetAhead(129, 0));
+}
