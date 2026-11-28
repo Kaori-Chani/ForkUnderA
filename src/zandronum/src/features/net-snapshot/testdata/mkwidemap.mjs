@@ -167,8 +167,11 @@ const highSwitch = m.wall(RMX + 128, RY0, RMX - 128, RY0, start, SWITCH,
     repeatspecial: true, id: 4 });
 // West of the walk north, so a player reaches the switches without being pushed off course and
 // steps into the push only when the measurement asks for it.
+// PUSH_MASK (0x1000), which DPusher::Tick tests before it pushes anything; the zdoom
+// namespace takes a sector special untranslated, so the bit arrives as written.
 const pushSector = m.block(RX0 + 192, RY0 + 1088, RX0 + 576, RY0 + 1472,
-  { ...FLAT, id: 3 }, start, () => OPEN, () => OPEN, () => ({ blocking: false }));
+  { ...FLAT, id: 3, special: 4096 }, start, () => OPEN, () => OPEN,
+  () => ({ blocking: false }));
 
 m.thing({ x: RX0 + 384, y: RY0 + 1280, angle: 0, type: THING_POINTPUSHER });
 m.thing({ x: RMX, y: RY0 + 192, angle: 90, type: 1 });
