@@ -79,6 +79,9 @@ static inline SnapFrame FuzzFrame(unsigned int bits)
 			f.origin[k] = (k == 1) ? -8387608 : 8387608;
 		}
 	}
+	// Bit 3: a mover record's sector index in four bytes, as a wide map's is.
+	if (bits & 8u)
+		f.indexBytes = SNAPMV_INDEX_WIDE;
 	return f;
 }
 
@@ -133,20 +136,21 @@ static SNAP_FUZZ_NOINLINE void FuzzSeedMover(SnapFuzzRng& r, const SnapFrame& f,
 		break;
 	}
 	}
-	BYTE rec[1 + 1 + SNAPMV_HEADER_BYTES + SNAPMV_BODY_MAX];
+	BYTE rec[1 + 1 + SNAPMV_HEADER_MAX + SNAPMV_BODY_MAX];
 	const unsigned int at = (unsigned int)s.bytes.size();
 	// Drawn as statements, since argument order differs between compilers; this
 	// is the order GCC used, which the published figures came from.
 	const BYTE gen = (BYTE)(1 + FuzzRand(r) % 255);
 	const unsigned int span = (cls == SNAPMV_POLY) ? lv.polys : lv.sectors;
-	const WORD index = (WORD)(FuzzRand(r) % ((span > 0) ? span : 65536u));
-	const unsigned int len = WriteMoverBody(rec, cls, flags, index, gen, body, n);
+	const unsigned int index = FuzzRand(r) % ((span > 0) ? span : 65536u);
+	const unsigned int len = WriteMoverBody(rec, cls, flags, index, gen, body, n,
+		f.indexBytes);
 	FuzzAppend(s, rec, len);
 	s.hot.push_back(at + 1);	// length byte
 	s.hot.push_back(at + 2);										// class
 	s.hot.push_back(at + 3);										// flags
 	if (cls == SNAPMV_POLY)								// entry count
-		s.hot.push_back(at + 1 + SNAPMV_HEADER_BYTES + PolyHeaderBytes(f));
+		s.hot.push_back(at + 1 + 3 + f.indexBytes + PolyHeaderBytes(f));
 }
 
 // One payload in the frame `frameBits` names: entity records of every group

@@ -24,7 +24,7 @@ EndCommand
 
 Command MissileExplode
 	Actor missile
-	Short lineId
+	Long lineId
 	AproxFixed x
 	AproxFixed y
 	AproxFixed z

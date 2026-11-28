@@ -48,6 +48,8 @@ static void dump_Raw(const BYTE* p, unsigned int n)
 
 static void dump_Frame(const SnapFrame& f)
 {
+	// The index width is read from the frame and not printed: three shipped dump digests
+	// hold this line, and no recording is wide yet for it to disambiguate.
 	fprintf(g_out, " origin=%d,%d,%d width=%u,%u,%u", f.origin[0], f.origin[1],
 		f.origin[2], f.width[0], f.width[1], f.width[2]);
 }
@@ -58,7 +60,7 @@ static void dump_Frame(const SnapFrame& f)
 static void dump_Mover(const SnapFrame& f, const BYTE* p, unsigned int n,
 	unsigned int version)
 {
-	const unsigned int hdrBytes = MoverHeaderBytes(version);
+	const unsigned int hdrBytes = MoverHeaderBytes(version, f.indexBytes);
 	if (n < hdrBytes)
 	{
 		fprintf(g_out, " bad=1");
@@ -66,8 +68,8 @@ static void dump_Mover(const SnapFrame& f, const BYTE* p, unsigned int n,
 		return;
 	}
 	BYTE cls = 0, flags = 0, gen = 0;
-	WORD index = 0;
-	ReadMoverHeader(p, hdrBytes, cls, flags, index, gen);
+	unsigned int index = 0;
+	ReadMoverHeader(p, hdrBytes, f.indexBytes, cls, flags, index, gen);
 	fprintf(g_out, " class=%u flags=%u index=%u gen=%u", cls, flags, index, gen);
 
 	// An unknown class or a length that disagrees loses this record only, as

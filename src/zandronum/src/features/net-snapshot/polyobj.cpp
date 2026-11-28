@@ -116,7 +116,7 @@ void zx::netsnapshot::PolyCapture( FPolyObj *poly, bool bAllocate )
 			e.kind |= SNAPPO_SPECIAL;
 		bytes += b;
 	}
-	MoverCapturePoly( poly, (WORD)( poly - polyobjs ), s, over, bAllocate );
+	MoverCapturePoly( poly, (unsigned int)( poly - polyobjs ), s, over, bAllocate );
 }
 
 void DPolyAction::SnapCapture ()
@@ -310,7 +310,7 @@ static int * g_polyStamp = NULL;
 static int g_polyStampCount = 0;
 static unsigned int g_polyStampEpoch = 0;
 
-static int & snappo_Stamp( WORD index )
+static int & snappo_Stamp( unsigned int index )
 {
 	const unsigned int epoch = StreamEpoch( );
 	if (( g_polyStampCount != po_NumPolyobjs ) || ( g_polyStampEpoch != epoch ))
@@ -337,7 +337,7 @@ struct SnapPolyKept
 static TArray<SnapPolyKept> g_polyKept;
 static unsigned int g_polyKeptEpoch = 0;
 
-static void snappo_Keep( BYTE flags, WORD index, const BYTE *pBody,
+static void snappo_Keep( BYTE flags, unsigned int index, const BYTE *pBody,
 	unsigned int bodyBytes, int frame )
 {
 	const unsigned int epoch = StreamEpoch( );
@@ -434,7 +434,7 @@ static unsigned int snappo_DestroyUnlisted( FPolyObj *poly, DPolyAction * const 
 
 // Applies one polyobject record, from the mover sink or the hold's replay,
 // reconciling the client's actions to it by generation and type.
-void zx::netsnapshot::PolyApplyRecord( BYTE flags, WORD index, const BYTE *pBody,
+void zx::netsnapshot::PolyApplyRecord( BYTE flags, unsigned int index, const BYTE *pBody,
 	unsigned int bodyBytes, int frame )
 {
 	++g_polyRecords;
@@ -608,9 +608,9 @@ unsigned int zx::netsnapshot::PolyGateOn( unsigned int &applied )
 		for ( unsigned int i = 0; i < g_polyKept.Size( ); ++i )
 		{
 			SnapPolyKept &k = g_polyKept[i];
-			if ( k.bHave && (( k.frame - snappo_Stamp( (WORD)i )) >= 0 ))
+			if ( k.bHave && (( k.frame - snappo_Stamp( i )) >= 0 ))
 			{
-				PolyApplyRecord( k.flags, (WORD)i, k.body, k.bodyBytes, k.frame );
+				PolyApplyRecord( k.flags, i, k.body, k.bodyBytes, k.frame );
 				++applied;
 			}
 			k.bHave = false;
@@ -669,7 +669,7 @@ bool zx::netsnapshot::OwnsPoly( FPolyObj *poly )
 
 // Advances a replayed record's actions by the hold, listing them first since
 // an action ending in its Tick unlinks itself.
-unsigned int zx::netsnapshot::PolyAdvance( WORD index, int tics )
+unsigned int zx::netsnapshot::PolyAdvance( unsigned int index, int tics )
 {
 	FPolyObj *poly = GetPolyobjByIndex( index );
 	if ( poly == NULL )

@@ -58,8 +58,12 @@ bool zx::netsnapshot::ZsnapOpen(SnapStreamReader& reader, const char* pszFilenam
 	reader.frame = FrameNarrow();
 	if (ZsnapHeaderBytes(reader.version) > ZSNAP_HEADER_SIZE)
 	{
-		BYTE fr[ZSNAP_HEADER_FRAME];
-		if (fread(fr, 1, ZSNAP_HEADER_FRAME, reader.file) != ZSNAP_HEADER_FRAME)
+		// The frame block is the version's: 15 bytes from v33, 16 from v35, whose last
+		// byte is the mover index's width.
+		const unsigned int frBytes = ZsnapHeaderBytes(reader.version)
+			- ZSNAP_HEADER_SIZE;
+		BYTE fr[ZSNAP_HEADER_FRAME35];
+		if (fread(fr, 1, frBytes, reader.file) != frBytes)
 		{
 			ZsnapClose(reader);
 			reader.error = "truncated zsnap header";
@@ -81,6 +85,18 @@ bool zx::netsnapshot::ZsnapOpen(SnapStreamReader& reader, const char* pszFilenam
 			ZsnapClose(reader);
 			reader.error = "unsupported zsnap frame width";
 			return false;
+		}
+		// From v35 the mover index's width rides with them, and an unknown one would
+		// read every mover envelope at the wrong stride.
+		if (frBytes >= ZSNAP_HEADER_FRAME35)
+		{
+			if ((fr[15] != SNAPMV_INDEX_NARROW) && (fr[15] != SNAPMV_INDEX_WIDE))
+			{
+				ZsnapClose(reader);
+				reader.error = "unsupported zsnap mover index width";
+				return false;
+			}
+			reader.frame.indexBytes = fr[15];
 		}
 	}
 	return true;

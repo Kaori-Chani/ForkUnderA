@@ -1,7 +1,7 @@
 Command ACSScriptExecute
 	Short netid
 	Actor activator with NullAllowed
-	Short lineid
+	Long lineid
 	Byte levelnum
 	Variable arg0
 	Variable arg1
@@ -233,13 +233,14 @@ Command SnapJoin
 	Byte widthX
 	Byte widthY
 	Byte widthZ
+	Byte widthSector
 EndCommand
 
 # [Kaori-Chani] features/net-snapshot: a scroller's control height and accumulated velocity,
 # which DoScroller does not carry.
 Struct SnapScrollerState
 	Byte type
-	Short affectee
+	Long affectee
 	Fixed lastHeight
 	Fixed vdx
 	Fixed vdy
@@ -249,7 +250,7 @@ EndStruct
 # may not have arrived; DoPusher carries none of them.
 Struct SnapPusherState
 	Byte type
-	Short affectee
+	Long affectee
 	Long x
 	Long y
 	Long radius

@@ -44,8 +44,8 @@ struct RefCase
 const RefCase REF_WIDE =
 {
 	"ref-wide.csnap",
-	"467139698e7b8112b298b9b19516568700c5ef0765da57ace83628e7de46485c",
-	"cedfc46bea1d55d973ed6e6d8ffc68108e3ac006f245ce13d1a7bc71bc6f88ec",
+	"85481ba017d16047f19a915385759b319d1b68a9848ae96f33f381fd4e1f5fe8",
+	"4e50b607eba5aab57859f4bf81e6fe6d725fbeef5f9ed93cf3f7b7aa6bea1840",
 };
 const RefCase REF_ZSNAP =
 {

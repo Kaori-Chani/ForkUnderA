@@ -121,7 +121,7 @@ static void fuzz_Read(const char* tag, const BYTE* p, unsigned int n, F read)
 }
 
 struct FuzzEvent { WORD tic; SnapEntityState e; };
-struct FuzzHeader { BYTE cls, flags, gen; WORD index; };
+struct FuzzHeader { BYTE cls, flags, gen; unsigned int index; };
 struct FuzzPoly { bool bOk; SnapMoverPoly s; };
 
 // The readers' frame: from the input's first byte for a payload or cosmetic
@@ -140,14 +140,15 @@ static void fuzz_Event(BYTE type, const BYTE* p, unsigned int n, unsigned int ve
 	{
 	case SNAPEV_MOVER:
 	{
-		const unsigned int hdrBytes = MoverHeaderBytes(version);
+		const unsigned int hdrBytes = MoverHeaderBytes(version, g_frame.indexBytes);
 		if (n < hdrBytes)
 			return;
 		++g_reach[R_MOVERHDR];
 		FuzzHeader h;
 		fuzz_Read<FuzzHeader>("mover-header", p, hdrBytes, [&](const BYTE* q, FuzzHeader& o)
-			{ ReadMoverHeader(q, hdrBytes, o.cls, o.flags, o.index, o.gen); });
-		ReadMoverHeader(p, hdrBytes, h.cls, h.flags, h.index, h.gen);
+			{ ReadMoverHeader(q, hdrBytes, g_frame.indexBytes, o.cls, o.flags, o.index,
+				o.gen); });
+		ReadMoverHeader(p, hdrBytes, g_frame.indexBytes, h.cls, h.flags, h.index, h.gen);
 		const unsigned int body = MoverRecordBodyBytes(g_frame, h.cls, h.flags,
 			p + hdrBytes,
 			n - hdrBytes);
@@ -442,7 +443,7 @@ static void fuzz_one(const BYTE* data, size_t size)
 	g_inputSize = size;
 	const unsigned int sel = data[0] & 7;
 	const unsigned int version = (data[0] & 8) ? 27u : (unsigned int)ZSNAP_VERSION;
-	g_frame = FuzzFrame((data[0] >> 4) & 7);
+	g_frame = FuzzFrame((data[0] >> 4) & 15);
 	const BYTE* p = data + 1;
 	const unsigned int n = (unsigned int)(size - 1);
 	if (sel <= 3)
@@ -473,8 +474,14 @@ static DWORD fuzz_Rand()
 	return FuzzRand(g_rng);
 }
 
-// Mover records may name any index, as a corrupt file or stream can.
-static const SnapFuzzLevel g_anyIndex = { 65536, 65536 };
+// Mover records may name any index, as a corrupt file or stream can; a four-byte
+// envelope reaches past 65,535, which is the whole point of bit 3.
+static SnapFuzzLevel anyIndex(unsigned int bits)
+{
+	const unsigned int span = (bits & 8u) ? (1u << 24) : 65536u;
+	const SnapFuzzLevel lv = { span, span };
+	return lv;
+}
 
 static void seed_Put32(Bytes& b, DWORD v)
 {
@@ -500,8 +507,9 @@ static void seed_Cvars(SnapFuzzSeed& s)
 }
 
 // A map's frame as both containers store it, the one FuzzFrame(bits)
-// names: three origins, then three widths, which are hot.
-static void seed_Frame(SnapFuzzSeed& s, unsigned int bits)
+// names: three origins, three widths, which are hot, and the mover index's width where
+// the version carries it (.csnap v19, .zsnap v35); without it later records read out.
+static void seed_Frame(SnapFuzzSeed& s, unsigned int bits, bool bIndexByte)
 {
 	const SnapFrame f = FuzzFrame(bits);
 	for (unsigned int k = 0; k < 3; ++k)
@@ -509,6 +517,8 @@ static void seed_Frame(SnapFuzzSeed& s, unsigned int bits)
 	s.hot.push_back((unsigned int)s.bytes.size());
 	for (unsigned int k = 0; k < 3; ++k)
 		s.bytes.push_back(f.width[k]);
+	if (bIndexByte)
+		s.bytes.push_back(f.indexBytes);
 }
 
 // A .csnap: the header, its cvar block, then records of every kind.
@@ -527,8 +537,10 @@ static SnapFuzzSeed seed_Csnap()
 	seed_Put32(s.bytes, fuzz_Rand() % 8);
 	seed_Cvars(s);
 	// From v18 the map record may carry wide axes, and its payloads are written
-	// in that frame; the map comes first, so they are read in it.
-	const unsigned int bits = (version >= 18) ? fuzz_Rand() % 8 : 0;
+	// in that frame; the map comes first, so they are read in it. From v19 it
+	// carries the mover index's width too, so the wide envelope is drawn as well.
+	const unsigned int bits = (version >= 19) ? fuzz_Rand() % 16
+		: ((version >= 18) ? fuzz_Rand() % 8 : 0);
 	const unsigned int records = 2 + fuzz_Rand() % 6;
 	for (unsigned int r = 0; r < records; ++r)
 	{
@@ -537,7 +549,7 @@ static SnapFuzzSeed seed_Csnap()
 		s.bytes.push_back(kind);
 		if (kind == CSNAP_DELTA)
 		{
-			const SnapFuzzSeed pay = FuzzSeedPayload(g_rng, bits, g_anyIndex);
+			const SnapFuzzSeed pay = FuzzSeedPayload(g_rng, bits, anyIndex(bits));
 			for (unsigned int k = 0; k < 3; ++k)
 				seed_Put32(s.bytes, fuzz_Rand());
 			s.hot.push_back((unsigned int)s.bytes.size() + 3);	// size, high
@@ -579,7 +591,7 @@ static SnapFuzzSeed seed_Csnap()
 			for (unsigned int k = 0; k < len + 16u; ++k)
 				s.bytes.push_back((BYTE)fuzz_Rand());
 			if (version >= 17)
-				seed_Frame(s, bits);
+				seed_Frame(s, bits, version >= 19);
 		}
 	}
 	return s;
@@ -598,14 +610,16 @@ static SnapFuzzSeed seed_Zsnap()
 	seed_Put32(s.bytes, 1);
 	seed_Put32(s.bytes, 0);
 	s.hot.push_back(4);
-	// A v34 header may carry wide axes; v33 was only ever narrow.
-	const unsigned int bits = (version >= 34) ? fuzz_Rand() % 8 : 0;
+	// A v34 header may carry wide axes and a v35 one the mover index's width;
+	// v33 was only ever narrow.
+	const unsigned int bits = (version >= 35) ? fuzz_Rand() % 16
+		: ((version >= 34) ? fuzz_Rand() % 8 : 0);
 	if (ZsnapHeaderBytes(version) > ZSNAP_HEADER_SIZE)
-		seed_Frame(s, bits);
+		seed_Frame(s, bits, version >= 35);
 	const unsigned int records = 1 + fuzz_Rand() % 3;
 	for (unsigned int r = 0; r < records; ++r)
 	{
-		const SnapFuzzSeed pay = FuzzSeedPayload(g_rng, bits, g_anyIndex);
+		const SnapFuzzSeed pay = FuzzSeedPayload(g_rng, bits, anyIndex(bits));
 		Bytes stored = pay.bytes;
 		if (fuzz_Rand() & 1)
 		{
@@ -653,7 +667,7 @@ extern "C" int LLVMFuzzerTestOneInput(const unsigned char* data, size_t size)
 // on every run of one build.
 #define WIDE_REFERENCE_SEED	0x5EED0285u
 
-// A .csnap for the reference set: a map in each of FuzzFrame's eight frames,
+// A .csnap for the reference set: a map in each of FuzzFrame's sixteen frames,
 // each with payloads written in it and the other record kinds between.
 static bool wide_Reference(const char* pszPath)
 {
@@ -671,7 +685,9 @@ static bool wide_Reference(const char* pszPath)
 	b.insert(b.end(), cvars.bytes.begin(), cvars.bytes.end());
 
 	DWORD serverTic = 100, gameTic = 100, ms = 1000;
-	for (unsigned int bits = 0; bits < 8; ++bits)
+	// Bit 3 is the mover index's width, so eight of these sixteen blocks carry
+	// four-byte envelopes through the recording path.
+	for (unsigned int bits = 0; bits < 16; ++bits)
 	{
 		if (bits > 0)
 		{
@@ -689,12 +705,12 @@ static bool wide_Reference(const char* pszPath)
 		for (unsigned int k = 0; k < 16; ++k)
 			b.push_back((BYTE)fuzz_Rand());
 		SnapFuzzSeed frame;
-		seed_Frame(frame, bits);
+		seed_Frame(frame, bits, CSNAP_VERSION >= 19);
 		b.insert(b.end(), frame.bytes.begin(), frame.bytes.end());
 
-		for (unsigned int d = 0; d < 48; ++d)
+		for (unsigned int d = 0; d < 24; ++d)
 		{
-			const SnapFuzzSeed pay = FuzzSeedPayload(g_rng, bits, g_anyIndex);
+			const SnapFuzzSeed pay = FuzzSeedPayload(g_rng, bits, anyIndex(bits));
 			b.push_back((BYTE)CSNAP_DELTA);
 			seed_Put32(b, ++serverTic);
 			seed_Put32(b, ++gameTic);
@@ -745,13 +761,8 @@ static bool wide_Reference(const char* pszPath)
 	if (bOk == false)
 		return false;
 
-	// [Kaori-Chani] Read back what was just written, so this mode is checked the whole way
-	// through: the generator, the 48.16 writers and the readers. It is deliberately not
-	// compared with the committed ref-wide.csnap, which no port can reproduce byte for byte:
-	// the generator fills its structs a byte at a time from this same stream, and a fixed_t
-	// field is eight bytes here where it was four in the build that wrote that file, so every
-	// draw from the first mover record on differs. The committed copy stays the reference, and
-	// the decode test is what holds it to its dump.
+	// [Kaori-Chani] Read back what was just written, then snap_fuzz_wide_reference_matches holds
+	// those bytes to the committed ref-wide.csnap, which this build reproduces exactly.
 	CsnapReader reader;
 	if (CsnapOpen(reader, pszPath) == false)
 	{
@@ -801,15 +812,16 @@ int main(int argc, char** argv)
 	for (unsigned int k = 0; k < 64; ++k)
 	{
 		const unsigned int t = k % targets;
-		// Every other round of targets in a frame with wide axes, which cycle.
+		// Every other round of targets draws a wide frame, cycling FuzzFrame's three
+		// axes and the mover index's width so a seed starts on each.
 		const unsigned int round = k / targets;
-		const unsigned int bits = (round & 1) ? (1 + (round >> 1) % 7) : 0;
-		SnapFuzzSeed s = (t == 0) ? FuzzSeedPayload(g_rng, bits, g_anyIndex)
+		const unsigned int bits = (round & 1) ? (1 + (round >> 1) % 15) : 0;
+		SnapFuzzSeed s = (t == 0) ? FuzzSeedPayload(g_rng, bits, anyIndex(bits))
 			: (t == 1) ? FuzzSeedCosmetic(g_rng, bits) : (t == 2) ? seed_Csnap()
 #ifdef SNAP_FUZZ_ZSNAP
 			: seed_Zsnap();
 #else
-			: FuzzSeedPayload(g_rng, bits, g_anyIndex);
+			: FuzzSeedPayload(g_rng, bits, anyIndex(bits));
 #endif
 		const BYTE sel = (BYTE)(((t == 0) ? (fuzz_Rand() % 4) : (t == 1) ? 4 : (t == 2) ? 7 : 6)
 			| (s.frameBits << 4));

@@ -874,11 +874,13 @@ result; one CTest case runs the tool for each of the three.
 
 `snap_fuzz` lives at `tests/snapfuzz/fuzz.cpp` rather than here: a non-engine program with its own
 `main`, whose sanitizers are build flags that must not reach the rest of the test binary. It is
-built behind `ZANDROX_SNAP_FUZZ` on GCC and Clang, with `ZANDROX_SNAP_FUZZ_LIBFUZZER` for the
-libFuzzer mode, and CTest runs 20,000 inputs at its fixed seed plus the wide-reference mode on every
-build. The long runs on both widths are a gate someone runs by hand.
+built behind `ZANDROX_SNAP_FUZZ` on every toolchain, MSVC included, with
+`ZANDROX_SNAP_FUZZ_LIBFUZZER` for the libFuzzer mode. CTest runs the wide-reference mode and its
+compare everywhere, and the 20,000-input seeded run off MSVC, where a temp file an input through a
+virus scanner takes 83 s against 1.4 s sanitized. The long runs on both widths are a gate someone
+runs by hand.
 
-`--wide-reference` writes a fresh wide reference and reads it back. It is not compared with the
-committed `ref-wide.csnap` and cannot be: the generator fills its structs a byte at a time from one
-deterministic stream, and `SnapMoverPlat` is 48 bytes here where a 32-bit `fixed_t` made it 32, so
-every draw from the first mover record on differs. The committed copy stays the reference.
+`--wide-reference` writes a fresh wide reference and reads it back, and
+`snap_fuzz_wide_reference_matches` holds those bytes to the committed `ref-wide.csnap`, so the
+generator and the shipped file cannot drift apart. Reshipping it is a deliberate act: the two
+digests in `refdump_test.cpp` move with it.

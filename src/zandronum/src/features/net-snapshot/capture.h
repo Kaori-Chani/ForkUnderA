@@ -293,22 +293,22 @@ QWORD LegacyPlayerSkips(bool bReset);
 
 // Mover capture, behind fua_snap_movers: a thinker hands its state in, `pOwner`
 // naming the slot and `bGone` marking it destroyed.
-void MoverCapturePlat(const void * pOwner, WORD index,
+void MoverCapturePlat(const void * pOwner, unsigned int index,
 	const SnapMoverPlat & s, bool bBlocked, bool bGone);
-void MoverCaptureCeiling(const void * pOwner, WORD index,
+void MoverCaptureCeiling(const void * pOwner, unsigned int index,
 	const SnapMoverCeiling & s, bool bBlocked, bool bGone);
-void MoverCaptureFloor(const void * pOwner, WORD index,
+void MoverCaptureFloor(const void * pOwner, unsigned int index,
 	const SnapMoverFloor & s, bool bStair, bool bBlocked, bool bGone);
-void MoverCaptureDoor(const void * pOwner, WORD index,
+void MoverCaptureDoor(const void * pOwner, unsigned int index,
 	const SnapMoverDoor & s, bool bBlocked, bool bGone);
-void MoverCaptureElevator(const void * pOwner, WORD index,
+void MoverCaptureElevator(const void * pOwner, unsigned int index,
 	const SnapMoverElevator & s, bool bBlocked, bool bGone);
-void MoverCapturePillar(const void * pOwner, WORD index,
+void MoverCapturePillar(const void * pOwner, unsigned int index,
 	const SnapMoverPillar & s, bool bGone);
 // A whole polyobject by its FPolyObj and polyobjs[] index, no entries the GONE;
 // `overCap` counts entries the full body left out, and `bAllocate` false only
 // updates a live slot.
-void MoverCapturePoly(const void * pOwner, WORD index,
+void MoverCapturePoly(const void * pOwner, unsigned int index,
 	const SnapMoverPoly & s, unsigned int overCap, bool bAllocate);
 // Polyobject slots reclaimed, entries over cap, and rotator re-anchors.
 void MoverPolyStats(unsigned int & reclaimed, unsigned int & overCap,
@@ -396,7 +396,7 @@ void MoverReset();
 // SNAPMV_BODY_MAX of room.
 unsigned int MoverSlotCount();
 bool MoverSlotRead(unsigned int slot, BYTE & cls, BYTE & flags,
-	WORD & index, BYTE & gen, WORD & seq, BYTE * pBody, unsigned int & bodyBytes);
+	unsigned int & index, BYTE & gen, WORD & seq, BYTE * pBody, unsigned int & bodyBytes);
 
 // The capture counters, `bumps` near `captures` meaning a compared plane.
 void MoverCaptureStats(unsigned int & live, unsigned int & captures,

@@ -94,6 +94,11 @@ def type_sig(param, seen=()):
     sig = param.typename
     if getattr(param, "specialization", None):
         sig += "<%s>" % param.specialization
+    elif getattr(param, "indexLength", None):
+        # [Kaori-Chani] A Sector, Line or Side travels as an index of its own width, so
+        # the width is the wire shape: without it a Sector read as a Short and one read
+        # as a Long printed the same word and a widening moved nothing here.
+        sig += "<%s>" % param.indexLength
     return sig
 
 

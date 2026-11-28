@@ -38,6 +38,11 @@
 // Positions cross relative to the map's origin in whole units, at a width per
 // axis the server picks once per map and SnapJoin carries.
 
+// [Kaori-Chani] A mover record's sector index: two bytes up to 65,535 sectors and four above,
+// taken per map and carried in SnapJoin, so a map within the narrow width stays byte-identical.
+#define SNAPMV_INDEX_NARROW	2
+#define SNAPMV_INDEX_WIDE	4
+
 #define SNAP_FRAME_NARROW		2		// bytes an axis: 16-bit whole units
 #define SNAP_FRAME_WIDE			3		// bytes an axis spanning past 65,535 units
 #define SNAP_FRAME_WIDEST		SNAP_FRAME_WIDE		// what sizes a buffer
@@ -48,6 +53,9 @@ struct SnapFrame
 {
 	int				origin[3];		// whole units, so a field's rounding commutes with it
 	BYTE			width[3];		// bytes an axis: SNAP_FRAME_NARROW or SNAP_FRAME_WIDE
+	// [Kaori-Chani] A mover record's sector index, SNAPMV_INDEX_NARROW or _WIDE: taken per
+	// map as the widths above are, and carried the same way, in SnapJoin and the files.
+	BYTE			indexBytes;
 	unsigned int*	pClamped;		// bumped per value clamped into the frame; NULL counts nothing
 };
 
@@ -67,6 +75,7 @@ inline SnapFrame FrameNarrow()
 		f.origin[k] = 0;
 		f.width[k] = SNAP_FRAME_NARROW;
 	}
+	f.indexBytes = SNAPMV_INDEX_NARROW;
 	f.pClamped = NULL;
 	return f;
 }
@@ -415,9 +424,10 @@ typedef char snap_assert_selfdesc_range[
 // and BODY_MAX bounds any class's body (a polyobject's door and move is 66).
 #define SNAPMV_BODY_MAX		128		// widest per-class body; asserted below
 #define SNAPMV_HEADER_BYTES	5		// class 1 + flags 1 + index 2 + generation 1
+#define SNAPMV_HEADER_MAX	( SNAPMV_HEADER_BYTES + SNAPMV_INDEX_WIDE - SNAPMV_INDEX_NARROW )
 
 // The length byte is part of what the record occupies, so it is counted here.
-#define SNAP_EVBYTES_MOVER	( 1 + SNAPMV_HEADER_BYTES + SNAPMV_BODY_MAX )
+#define SNAP_EVBYTES_MOVER	( 1 + SNAPMV_HEADER_MAX + SNAPMV_BODY_MAX )
 
 // An entity's properties: the length byte, the flags, scale, roll, a material name with
 // its own length byte, and the uniform mask with four floats a set slot.
@@ -1605,31 +1615,35 @@ inline bool MoverClassTracked(unsigned int cls)
 
 namespace zx { namespace netsnapshot {
 
-// The envelope's width for a stream version: class, flags, index and the
-// generation (never 0), which a pre-v28 envelope lacks and reads as 0.
-inline unsigned int MoverHeaderBytes(unsigned int version)
+// The envelope's width for a stream version and the map's index width: class, flags, index
+// and the generation (never 0), which a pre-v28 envelope lacks and reads as 0.
+inline unsigned int MoverHeaderBytes(unsigned int version, unsigned int indexBytes)
 {
-	return (version >= 28) ? SNAPMV_HEADER_BYTES : (SNAPMV_HEADER_BYTES - 1);
+	const unsigned int n = 3 + indexBytes;
+	return (version >= 28) ? n : (n - 1);
 }
 
 inline unsigned int WriteMoverHeader(BYTE* p, BYTE cls, BYTE flags,
-	WORD index, BYTE gen)
+	unsigned int index, BYTE gen, unsigned int indexBytes)
 {
 	p[0] = cls;
 	p[1] = flags;
-	Put16(p + 2, index);
-	p[4] = gen;
-	return SNAPMV_HEADER_BYTES;
+	if (indexBytes >= SNAPMV_INDEX_WIDE)
+		Put32(p + 2, index);
+	else
+		Put16(p + 2, (WORD)index);
+	p[2 + indexBytes] = gen;
+	return 3 + indexBytes;
 }
 
-// `hdrBytes` is MoverHeaderBytes of the stream being read.
-inline void ReadMoverHeader(const BYTE* p, unsigned int hdrBytes,
-	BYTE& cls, BYTE& flags, WORD& index, BYTE& gen)
+// `hdrBytes` is MoverHeaderBytes of the stream being read, `indexBytes` its map's.
+inline void ReadMoverHeader(const BYTE* p, unsigned int hdrBytes, unsigned int indexBytes,
+	BYTE& cls, BYTE& flags, unsigned int& index, BYTE& gen)
 {
 	cls = p[0];
 	flags = p[1];
-	index = Read16(p + 2);
-	gen = (hdrBytes > 4) ? p[4] : 0;
+	index = (indexBytes >= SNAPMV_INDEX_WIDE) ? Read32(p + 2) : Read16(p + 2);
+	gen = (hdrBytes > (2 + indexBytes)) ? p[2 + indexBytes] : 0;
 }
 
 }} // namespace zx::netsnapshot
@@ -2215,19 +2229,20 @@ typedef char snap_assert_mover_body[
 	&& (SNAPMV_PILLAR_BYTES <= SNAPMV_BODY_MAX)
 	&& ((SNAPPO_HEADER_BYTES + 2 + SNAPPO_DOOR_BYTES) <= SNAPMV_BODY_MAX)
 	&& (SNAPPO_MAXENTRIES <= 255)
-	&& ((SNAPMV_HEADER_BYTES + SNAPMV_BODY_MAX) <= SNAP_EVLEN_MAX)) ? 1 : -1];
+	&& ((SNAPMV_HEADER_MAX + SNAPMV_BODY_MAX) <= SNAP_EVLEN_MAX)) ? 1 : -1];
 
 namespace zx { namespace netsnapshot {
 
 // Writes a mover event's body (mask, length, envelope, body; the caller writes
 // the id), taking `bodyBytes` so a body under the wrong class mismatches.
 inline unsigned int WriteMoverBody(BYTE* p, BYTE cls, BYTE flags,
-	WORD index, BYTE gen, const BYTE* pBody, unsigned int bodyBytes)
+	unsigned int index, BYTE gen, const BYTE* pBody, unsigned int bodyBytes,
+	unsigned int indexBytes)
 {
 	p[0] = (BYTE)(SNAPGRP_EVENT | SNAPEV_MOVER);
 	unsigned int n = SNAP_EVENT_MASK_BYTES;
-	p[n++] = (BYTE)(SNAPMV_HEADER_BYTES + bodyBytes);
-	n += WriteMoverHeader(p + n, cls, flags, index, gen);
+	p[n++] = (BYTE)(3 + indexBytes + bodyBytes);
+	n += WriteMoverHeader(p + n, cls, flags, index, gen, indexBytes);
 	for (unsigned int b = 0; b < bodyBytes; ++b)
 		p[n + b] = pBody[b];
 	return n + bodyBytes;
@@ -2237,13 +2252,15 @@ inline unsigned int WriteMoverBody(BYTE* p, BYTE cls, BYTE flags,
 
 // The stream's version, raised for a change of meaning as well as of shape; the
 // history is in format.md.
-#define ZSNAP_VERSION		34
+#define ZSNAP_VERSION		35
 // The oldest stream this reader decodes (v22 gave APPEAR two widths), raised
 // whenever an older stream would be misread rather than skipped.
 #define ZSNAP_VERSION_MIN	22
 #define ZSNAP_FLAG_ZSTD		( 1 << 0 )
 #define ZSNAP_HEADER_SIZE	16		// magic, version, ticrate, flags, reserved
-#define ZSNAP_HEADER_FRAME	15		// from v33: three 32-bit origins, three widths
+// from v33: three 32-bit origins and three widths; from v35 the mover index's width too
+#define ZSNAP_HEADER_FRAME	15
+#define ZSNAP_HEADER_FRAME35	16
 #define ZSNAP_RECHDR_SIZE	18
 
 namespace zx { namespace netsnapshot {
@@ -2252,6 +2269,8 @@ namespace zx { namespace netsnapshot {
 // version rather than assuming the current one.
 inline unsigned int ZsnapHeaderBytes(unsigned int version)
 {
+	if (version >= 35)
+		return ZSNAP_HEADER_SIZE + ZSNAP_HEADER_FRAME35;
 	return ZSNAP_HEADER_SIZE + ((version >= 33) ? ZSNAP_HEADER_FRAME : 0);
 }
 

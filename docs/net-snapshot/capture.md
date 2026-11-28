@@ -112,7 +112,10 @@ The pump and the client lifecycle:
   from the map's vertices, the sector heights at each line's ends, the polyobjects' start spots and
   every actor (`ComputeExtentTake`, [entities.md](entities.md)), since the teardown hook runs before
   the next map exists. Clamps into it are counted, and the `[snap] frame` line reports the frame and
-  the window's clamps when the origin is off 0, an axis is wide or something clamped.
+  the window's clamps when the origin is off 0, an axis is wide or something clamped. The frame
+  also carries the mover record's sector index width, `SNAPMV_INDEX_NARROW` up to 65,535
+  sectors and `SNAPMV_INDEX_WIDE` above, taken from `numsectors` with the extent and carried the
+  same three ways: `SnapJoin`, the `.zsnap` header and the `.csnap` map record.
 - `GateOn`: whether the capture is running, which the legacy commands test before anything else.
 - `ReportCvars`: every snapshot cvar not at its default, printed at the server's first snapshot tick
   and by the client when snapshot traffic starts.

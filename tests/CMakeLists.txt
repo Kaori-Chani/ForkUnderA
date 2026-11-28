@@ -323,10 +323,13 @@ endif()
 # [Kaori-Chani] features/net-snapshot's decoder fuzzer. It stays a program of its own rather than
 # a test case: libFuzzer supplies its own main, the seeded mode takes a count, a seed and a corpus
 # folder, and the sanitizers it needs are build flags that would otherwise apply to the whole test
-# binary. It is also what writes ref-wide.csnap, so --wide-reference has to stay buildable here.
-option(ZANDROX_SNAP_FUZZ "Build the snapshot decoder fuzzer (GCC/Clang)" ON)
+# binary. It is also what writes ref-wide.csnap, which two tests below hold to the committed copy.
+option(ZANDROX_SNAP_FUZZ "Build the snapshot decoder fuzzer" ON)
 option(ZANDROX_SNAP_FUZZ_LIBFUZZER "Build the snapshot fuzzer as a libFuzzer target (Clang)" OFF)
-if(ZANDROX_SNAP_FUZZ AND NOT MSVC)
+# [Kaori-Chani] Built on every toolchain, MSVC included: the sanitizers below are the part
+# MSVC cannot take, and gating the whole target on them left fuzz.cpp uncompilable on a
+# Windows workstation, which is how a change to the mover envelope reached CI broken.
+if(ZANDROX_SNAP_FUZZ)
   add_executable(snap_fuzz
     "${CMAKE_CURRENT_SOURCE_DIR}/snapfuzz/fuzz.cpp"
     "${ENGINE_SRC}/features/net-snapshot/recordread.cpp"
@@ -338,7 +341,11 @@ if(ZANDROX_SNAP_FUZZ AND NOT MSVC)
   target_compile_definitions(snap_fuzz PRIVATE SNAP_FUZZ_ZSNAP)
   # [Kaori-Chani] A finding stops the run with a nonzero exit rather than being reported and
   # walked past, which is what -fno-sanitize-recover=all is for.
-  if(ZANDROX_SNAP_FUZZ_LIBFUZZER)
+  if(MSVC)
+    # No sanitizer and no libFuzzer here: this build is for the compile and the two
+    # deterministic runs below, not for fuzzing.
+    target_compile_definitions(snap_fuzz PRIVATE _CRT_SECURE_NO_WARNINGS)
+  elseif(ZANDROX_SNAP_FUZZ_LIBFUZZER)
     target_compile_definitions(snap_fuzz PRIVATE SNAP_FUZZ_LIBFUZZER)
     target_compile_options(snap_fuzz PRIVATE -O1 -g
       -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all)
@@ -349,18 +356,26 @@ if(ZANDROX_SNAP_FUZZ AND NOT MSVC)
     target_link_options(snap_fuzz PRIVATE -fsanitize=address,undefined)
   endif()
 
-  # [Kaori-Chani] Two short deterministic runs on every build, so the fuzzer is exercised rather
+  # [Kaori-Chani] Short deterministic runs on every build, so the fuzzer is exercised rather
   # than only ever run by hand; the long runs on both widths stay a gate someone runs themselves.
   if(NOT ZANDROX_SNAP_FUZZ_LIBFUZZER)
-    add_test(NAME snap_fuzz_seeded COMMAND snap_fuzz 20000)
-    # [Kaori-Chani] The generator writes a fresh wide reference and reads it back, so the mode
-    # that makes new wide references is exercised end to end. It is not compared with the
-    # committed ref-wide.csnap: the generator draws one byte at a time from its stream, and a
-    # fixed_t is eight bytes here where it was four in the build that wrote that file, so no
-    # port can reproduce it byte for byte. The committed copy stays the reference, held to its
-    # dump by SnapshotRefDump.TheWideReferenceDecodesByteForByte.
+    # [Kaori-Chani] 20,000 inputs is 1.4 s sanitized and 83 s on MSVC, a temp file an input
+    # through a virus scanner, which is too long to sit in a 5 s suite.
+    if(NOT MSVC)
+      add_test(NAME snap_fuzz_seeded COMMAND snap_fuzz 20000)
+    endif()
+    # [Kaori-Chani] The generator writes a fresh wide reference and reads it back, and the
+    # next test holds those bytes to the committed copy so the two cannot drift apart.
     add_test(NAME snap_fuzz_wide_reference COMMAND snap_fuzz --wide-reference
       "${CMAKE_CURRENT_BINARY_DIR}/ref-wide.regenerated.csnap")
+    add_test(NAME snap_fuzz_wide_reference_matches COMMAND
+      "${CMAKE_COMMAND}" -E compare_files
+      "${CMAKE_CURRENT_BINARY_DIR}/ref-wide.regenerated.csnap"
+      "${ENGINE_SRC}/features/net-snapshot/testdata/ref-wide.csnap")
+    # [Kaori-Chani] A fixture, so the compare reads a file this run wrote even under -j.
+    set_tests_properties(snap_fuzz_wide_reference PROPERTIES FIXTURES_SETUP SnapWideRef)
+    set_tests_properties(snap_fuzz_wide_reference_matches PROPERTIES
+      FIXTURES_REQUIRED SnapWideRef)
   endif()
 endif()
 

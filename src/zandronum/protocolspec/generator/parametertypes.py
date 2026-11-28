@@ -408,7 +408,9 @@ class SectorParameter(SpecParameter):
 		self.cxxtypename = 'sector_t *'
 		self.resolvingFunction = 'CLIENT_FindSectorByID'
 		self.arrayName = 'sectors'
-		self.indexLength = 'Short'
+		# [Kaori-Chani] Long, as SideParameter below has always been: a short sign-extends, so
+		# a map past 32,767 sectors lost the command and one past 65,535 changed the wrong sector.
+		self.indexLength = 'Long'
 
 	def writeread(self, writer, command, reference, **args):
 		# We first store a temporary variable containing the sector number, and then use CLIENT_FindSectorByID to
@@ -450,7 +452,7 @@ class LineParameter(SectorParameter):
 		self.cxxtypename = 'line_t *'
 		self.resolvingFunction = 'CLIENT_FindLineByID'
 		self.arrayName = 'lines'
-		self.indexLength = 'Short'
+		self.indexLength = 'Long'
 
 # ----------------------------------------------------------------------------------------------------------------------
 

@@ -42,7 +42,8 @@ all ([selftest.md](selftest.md), [entities.md](entities.md)).
 `refdump_test.cpp` holds three recordings to their dumps' SHA-256, each recording's own digest
 checked first so a damaged or mistaken file fails as the wrong file rather than as a decode
 difference. `testdata/ref-wide.csnap` ships in the repo at 67 KB and runs on every build, being the
-only reference with wide frames and non-zero origins; `ref.zsnap` and `ref.csnap` are 61 MB with
+only reference with wide frames, non-zero origins and four-byte mover indices;
+`ref.zsnap` and `ref.csnap` are 61 MB with
 their dumps and stay out, so those two run only with `ZX_SNAP_REFDIR` set and report that a skip is
 not a pass ([tools.md](tools.md)).
 

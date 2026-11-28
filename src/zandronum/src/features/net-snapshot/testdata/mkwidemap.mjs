@@ -4,7 +4,7 @@
 // [Kaori-Chani] widemap.wad: the map the protocol's widths are measured on -- more sectors and
 // more lines than a signed short can index, and a span wider than one can reach.
 //
-//   node src/zandronum/src/features/net-snapshot/testdata/mkwidemap.mjs
+//   node src/zandronum/src/features/net-snapshot/testdata/mkwidemap.mjs [--huge]
 //
 // MAP36, a slot no stock game fills (Freedoom 2 ends at MAP32 and our other fixtures take 33 to
 // 35), so loading it proves it is this map. 289 blocks of 11 x 11 cells fill it -- 34,969 sectors
@@ -58,10 +58,16 @@ const FLAT = { heightfloor: 0, heightceiling: 128, ...TEX };
 // left out save four megabytes of TEXTMAP over 34,969 of them.
 const CELL_SECTOR = { heightceiling: 128 };
 
-const CELL = 288;
+// --huge: a map past 65,535 sectors, for the index widths a WORD field truncates. Smaller
+// cells keep the span inside the loader's range, so only the counts grow.
+const HUGE = process.argv.includes("--huge");
+// A door on the huge map waits a minute rather than four seconds: 69,700 sectors make every
+// console round trip slow, and a window must read the mover while it is still there.
+const DOOR_DELAY = HUGE ? 2100 : 140;
+const CELL = HUGE ? 192 : 288;
 const BLOCK = 11;                   // cells each way in one block, its own connected region
 const PITCH = BLOCK + 1;            // the solid cell between blocks
-const BLOCKS = 17;                  // 17 x 17 of them, every one built
+const BLOCKS = HUGE ? 24 : 17;      // every one built: 576 blocks of 121, or 289
 const X0 = -(BLOCKS * PITCH * CELL) / 2;
 
 const m = new UdmfMap({ namespace: "zdoom" });
@@ -88,7 +94,8 @@ const lowDoor = m.block(RX0 + 256, RY1 - 512, RX0 + 576, RY1 - 192,
 m.wall(RX0, RY0, RX0, RY1, start, WALL);                  // west
 m.wall(RX0, RY1, RMX - 128, RY1, start, WALL);            // north, west of the switch
 const lowSwitch = m.wall(RMX - 128, RY1, RMX + 128, RY1, start, SWITCH,
-  { special: DOOR_RAISE, arg0: 1, arg1: 16, arg2: 140, playeruse: true, repeatspecial: true });
+  { special: DOOR_RAISE, arg0: 1, arg1: 16, arg2: DOOR_DELAY, playeruse: true,
+    repeatspecial: true });
 m.wall(RMX + 128, RY1, RX1, RY1, start, WALL);            // north, east of the switch
 m.wall(RX1, RY1, RX1, RY0, start, WALL);                  // east
 m.wall(RX1, RY0, RMX + 128, RY0, start, WALL);            // south, east of the high switch
@@ -97,8 +104,8 @@ m.wall(RMX - 128, RY0, RX0, RY0, start, WALL);            // south, west of it
 // The walkover that opens the high door, and the line that gives the pusher its force. Both sit
 // in the low pass: what is under test there is the sector each one names, not the line itself.
 m.opening(RX0 + 64, RY0 + 576, RX1 - 64, RY0 + 576, start, start, OPEN, OPEN,
-  { special: DOOR_RAISE, arg0: 2, arg1: 16, arg2: 140, playercross: true, repeatspecial: true,
-    blocking: false });
+  { special: DOOR_RAISE, arg0: 2, arg1: 16, arg2: DOOR_DELAY, playercross: true,
+    repeatspecial: true, blocking: false });
 m.opening(RX0 + 64, RY0 + 384, RX1 - 64, RY0 + 384, start, start, OPEN, OPEN,
   { special: POINTPUSH_SETFORCE, arg0: 3, arg1: 0, arg2: 200, arg3: 0, blocking: false });
 
@@ -156,7 +163,7 @@ for (let bj = 0; bj < BLOCKS; ++bj)
 const highDoor = m.block(RX1 - 576, RY1 - 512, RX1 - 256, RY1 - 192,
   { heightfloor: 0, heightceiling: 0, ...TEX, id: 2 }, start, () => DOORSIDE, () => DOORSIDE);
 const highSwitch = m.wall(RMX + 128, RY0, RMX - 128, RY0, start, SWITCH,
-  { special: DOOR_RAISE, arg0: 2, arg1: 16, arg2: 140, playeruse: true,
+  { special: DOOR_RAISE, arg0: 2, arg1: 16, arg2: DOOR_DELAY, playeruse: true,
     repeatspecial: true, id: 4 });
 // West of the walk north, so a player reaches the switches without being pushed off course and
 // steps into the push only when the measurement asks for it.
@@ -167,7 +174,8 @@ m.thing({ x: RX0 + 384, y: RY0 + 1280, angle: 0, type: THING_POINTPUSHER });
 m.thing({ x: RMX, y: RY0 + 192, angle: 90, type: 1 });
 m.thing({ x: RMX - 320, y: RY0 + 192, angle: 90, type: 2 });
 
-const out = path.join(path.dirname(fileURLToPath(import.meta.url)), "widemap.wad");
+const out = path.join(path.dirname(fileURLToPath(import.meta.url)),
+  HUGE ? "widemap-huge.wad" : "widemap.wad");
 fs.writeFileSync(out, wad(mapLumps("MAP36", m)));
 console.log(`wrote ${out}: ${m.sectors.length} sectors (${cellCount} filler cells),`
   + ` ${m.lines.length} lines, ${m.sides.length} sides, ${m.vertices.length} vertices`);

@@ -111,7 +111,7 @@ unsigned int JoinCount();
 // The joined map's position frame from SnapJoin, narrow at origin 0 until then;
 // UseMapFrame sets it from a recording or a test.
 void SetMapFrame(int originX, int originY, int originZ, int widthX, int widthY,
-	int widthZ);
+	int widthZ, int widthSector);
 void UseMapFrame(const SnapFrame& frame);
 const SnapFrame& ClientMapFrame();
 // The bytes each axis travels in, which a frame this build cannot read leaves
@@ -400,7 +400,7 @@ ClentLocalFn SetLocalSink(ClentLocalFn fn);
 
 // One sector or polyobject mover, its envelope decoded here and `bodyBytes`
 // already checked (`gen` 0 from a pre-v28 stream).
-typedef void (*ClentMoverFn)(BYTE cls, BYTE flags, BYTE gen, WORD index,
+typedef void (*ClentMoverFn)(BYTE cls, BYTE flags, BYTE gen, unsigned int index,
 	const BYTE * pBody, unsigned int bodyBytes);
 
 namespace zx { namespace netsnapshot {

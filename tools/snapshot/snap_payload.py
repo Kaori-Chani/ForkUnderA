@@ -44,13 +44,19 @@ EV_BRANCH, EV_LOCAL = 0, 2
 FRAME_NARROW = 2
 FRAME_WIDE = 3
 
+# A mover record's sector index: two bytes up to 65,535 sectors and four above, taken per
+# map and carried in the join and in both recordings (format.h's SNAPMV_INDEX_*).
+MV_INDEX_NARROW = 2
+MV_INDEX_WIDE = 4
+
 
 class Frame(object):
-    __slots__ = ('origin', 'width')
+    __slots__ = ('origin', 'width', 'index_bytes')
 
-    def __init__(self, origin=(0, 0, 0), width=(FRAME_NARROW,) * 3):
+    def __init__(self, origin=(0, 0, 0), width=(FRAME_NARROW,) * 3, index_bytes=MV_INDEX_NARROW):
         self.origin = tuple(origin)
         self.width = tuple(width)
+        self.index_bytes = index_bytes
 
     def extra(self, k):
         """Bytes axis k adds to a field over its narrow form."""
@@ -158,10 +164,11 @@ IDGAP_MAXBYTES = 3
 REC_IDBYTES_RAW = 2
 
 # The wire version these tables describe, which both readers require.
-WIRE_VERSION = 34
+WIRE_VERSION = 35
 # The versions whose payloads these tables read: v33 changed only the .zsnap
-# header, so a v32 payload is v33's, and v34's is v33's in a narrow frame.
-WIRE_READABLE = (32, 33, 34)
+# header, so a v32 payload is v33's, v34's is v33's in a narrow frame, and v35's is v34's
+# in a map of 65,535 sectors or fewer, which is every map these readers have seen.
+WIRE_READABLE = (32, 33, 34, 35)
 
 # An enter's classId bit for a 2-byte target NetID, masked off the class.
 CLASS_TARGET = 0x8000
@@ -171,16 +178,18 @@ CLASS_MASK = 0x7FFF
 def mover_header(body, frame=NARROW):
     """(cls, flags, index, gen, body_bytes) from a SNAPEV_MOVER payload past its
     length byte, as walk() hands it, in the map's `frame`; None for a class this
-    decoder does not know or a length that does not match it."""
-    hdr = MV_HEADER_BYTES
+    decoder does not know or a length that does not match it. The index is the frame's
+    width, two bytes or four, and the generation follows it."""
+    ix = getattr(frame, "index_bytes", MV_INDEX_NARROW)
+    hdr = 3 + ix
     if len(body) < hdr:
         return None
     cls = body[0]
     flags = body[1]
     if flags & MVF_POLY_RETIRED:
         return None
-    index = body[2] | (body[3] << 8)
-    gen = body[4]
+    index = int.from_bytes(bytes(body[2:2 + ix]), "little")
+    gen = body[2 + ix]
     if cls == MV_POLY:
         want = mover_poly_body_bytes(body[hdr:], frame)
     else:
@@ -665,6 +674,8 @@ def verify_header(path):
 
     # The mover envelope, as a body can be split differently at equal lengths.
     for nm, want in (('SNAPMV_HEADER_BYTES', MV_HEADER_BYTES),
+                     ('SNAPMV_INDEX_NARROW', MV_INDEX_NARROW),
+                     ('SNAPMV_INDEX_WIDE', MV_INDEX_WIDE),
                      ('SNAPMV_BODY_MAX', MV_BODY_MAX)):
         got = define(nm)
         if got is None:

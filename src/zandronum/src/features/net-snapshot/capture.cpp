@@ -348,6 +348,9 @@ static void snap_ComputeFrame()
 	g_mapFrame = FrameFromExtent(lo, hi, (long long)FIXED_MIN >> FRACBITS,
 		(long long)FIXED_MAX >> FRACBITS, &bOverflow);
 	g_mapFrame.pClamped = &g_frameClamps;
+	// A record's sector index needs four bytes past 65,535 sectors, and this map's count
+	// is as fixed as its extent, so the width is taken here and joined with the rest.
+	g_mapFrame.indexBytes = (numsectors > 65535) ? SNAPMV_INDEX_WIDE : SNAPMV_INDEX_NARROW;
 	if (bOverflow)
 		Printf("[snap] map wider than 16,777,215 units on an axis: positions past the frame clamp\n");
 	const SnapFrame &f = g_mapFrame;
@@ -4987,6 +4990,8 @@ CCMD(fua_snap_record)
 		snap_RecordWrite32((DWORD)frame.origin[k]);
 	for (unsigned int k = 0; k < 3; ++k)
 		fwrite(&frame.width[k], 1, 1, g_recordFile);
+	// From v35: the mover index's width, which sizes every envelope in the file.
+	fwrite(&frame.indexBytes, 1, 1, g_recordFile);
 
 	g_recordRecords = 0;
 	g_recordBytes = ZsnapHeaderBytes(ZSNAP_VERSION);
@@ -5316,7 +5321,7 @@ struct SnapMoverSlot
 {
 	const void *	owner;		// thinker identity; NULL = free
 	WORD			seq;
-	WORD			index;		// sector index, or polyobjs[] index for SNAPMV_POLY
+	unsigned int	index;		// sector index, or polyobjs[] index for SNAPMV_POLY
 	BYTE			cls;		// Mover*
 	BYTE			flags;		// SNAPMVF_*
 	BYTE			gen;		// instance generation, for the envelope
@@ -5445,7 +5450,7 @@ static bool snap_GoneBehind(unsigned int i, bool & bStarted)
 // The slot for a thinker pointer (not a sector), a live capture landing on a
 // gone slot being a recycled address and so a different mover.
 static SnapMoverSlot * snap_MoverSlotFor(const void * pOwner, bool bAllocate,
-	BYTE cls, WORD index)
+	BYTE cls, unsigned int index)
 {
 	unsigned int free = SNAPMV_MAXSLOTS;
 	unsigned int own = SNAPMV_MAXSLOTS;
@@ -5620,7 +5625,7 @@ bool zx::netsnapshot::MoversOn()
 // The half every class shares, the seq and gone bookkeeping; `bAllocate` false
 // finds an existing slot only, as a GONE does.
 static SnapMoverSlot * snap_MoverBegin(const void * pOwner, BYTE cls,
-	WORD index, bool bBlocked, bool bGone, BYTE & flags, bool bAllocate = true)
+	unsigned int index, bool bBlocked, bool bGone, BYTE & flags, bool bAllocate = true)
 {
 	if (MoversOn() == false)
 		return NULL;
@@ -5642,7 +5647,7 @@ static SnapMoverSlot * snap_MoverBegin(const void * pOwner, BYTE cls,
 	return pSlot;
 }
 
-static void snap_MoverCommit(SnapMoverSlot * pSlot, BYTE cls, WORD index,
+static void snap_MoverCommit(SnapMoverSlot * pSlot, BYTE cls, unsigned int index,
 	BYTE flags, bool bGone, bool bChanged)
 {
 	pSlot->cls = cls;
@@ -5665,7 +5670,7 @@ static void snap_MoverCommit(SnapMoverSlot * pSlot, BYTE cls, WORD index,
 	}
 }
 
-void zx::netsnapshot::MoverCapturePlat(const void * pOwner, WORD index,
+void zx::netsnapshot::MoverCapturePlat(const void * pOwner, unsigned int index,
 	const SnapMoverPlat & s, bool bBlocked, bool bGone)
 {
 	BYTE flags = 0;
@@ -5690,7 +5695,7 @@ void zx::netsnapshot::MoverCapturePlat(const void * pOwner, WORD index,
 
 // DFloor's compare leaves out the plane and the reset, pause and step
 // countdowns, which still ride the record.
-void zx::netsnapshot::MoverCaptureFloor(const void * pOwner, WORD index,
+void zx::netsnapshot::MoverCaptureFloor(const void * pOwner, unsigned int index,
 	const SnapMoverFloor & s, bool bStair, bool bBlocked, bool bGone)
 {
 	BYTE flags = 0;
@@ -5718,7 +5723,7 @@ void zx::netsnapshot::MoverCaptureFloor(const void * pOwner, WORD index,
 // DCeiling has no wait, so the plane is the only phase and the only exclusion.
 // m_Speed IS compared: a crusher changes it at every reversal and again when it
 // meets an obstruction, which is a transition the client must be told about.
-void zx::netsnapshot::MoverCaptureCeiling(const void * pOwner, WORD index,
+void zx::netsnapshot::MoverCaptureCeiling(const void * pOwner, unsigned int index,
 	const SnapMoverCeiling & s, bool bBlocked, bool bGone)
 {
 	BYTE flags = 0;
@@ -5741,7 +5746,7 @@ void zx::netsnapshot::MoverCaptureCeiling(const void * pOwner, WORD index,
 // DDoor excludes the plane, its wait countdown, and botDist and oldFloorDist,
 // which Tick recomputes on both machines every tic a floor moves under the door;
 // all four still ride the record. topWait is compared: the countdown reloads from it.
-void zx::netsnapshot::MoverCaptureDoor(const void * pOwner, WORD index,
+void zx::netsnapshot::MoverCaptureDoor(const void * pOwner, unsigned int index,
 	const SnapMoverDoor & s, bool bBlocked, bool bGone)
 {
 	BYTE flags = 0;
@@ -5766,7 +5771,7 @@ void zx::netsnapshot::MoverCaptureDoor(const void * pOwner, WORD index,
 
 // DElevator excludes both planes; everything else is constant over its life
 // except the flags, so it records at creation, a block or unblock, and GONE.
-void zx::netsnapshot::MoverCaptureElevator(const void * pOwner, WORD index,
+void zx::netsnapshot::MoverCaptureElevator(const void * pOwner, unsigned int index,
 	const SnapMoverElevator & s, bool bBlocked, bool bGone)
 {
 	BYTE flags = 0;
@@ -5788,7 +5793,7 @@ void zx::netsnapshot::MoverCaptureElevator(const void * pOwner, WORD index,
 }
 
 // As the elevator, `blocked` compared so a change of stalled plane records.
-void zx::netsnapshot::MoverCapturePillar(const void * pOwner, WORD index,
+void zx::netsnapshot::MoverCapturePillar(const void * pOwner, unsigned int index,
 	const SnapMoverPillar & s, bool bGone)
 {
 	BYTE flags = 0;
@@ -5811,7 +5816,7 @@ void zx::netsnapshot::MoverCapturePillar(const void * pOwner, WORD index,
 
 // A polyobject is blocked while any entry is and gone with none; `bAllocate`
 // false, for a destroy's capture, never takes a slot or revives a gone one.
-void zx::netsnapshot::MoverCapturePoly(const void * pOwner, WORD index,
+void zx::netsnapshot::MoverCapturePoly(const void * pOwner, unsigned int index,
 	const SnapMoverPoly & s, unsigned int overCap, bool bAllocate)
 {
 	bool bBlocked = false;
@@ -5909,7 +5914,7 @@ unsigned int zx::netsnapshot::MoverSlotCount()
 }
 
 bool zx::netsnapshot::MoverSlotRead(unsigned int slot, BYTE & cls, BYTE & flags,
-	WORD & index, BYTE & gen, WORD & seq, BYTE * pBody, unsigned int & bodyBytes)
+	unsigned int & index, BYTE & gen, WORD & seq, BYTE * pBody, unsigned int & bodyBytes)
 {
 	if (slot >= g_moverSlotsUsed)
 		return false;

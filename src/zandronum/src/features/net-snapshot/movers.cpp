@@ -141,7 +141,7 @@ struct SnapMoverHeld
 {
 	int				frame;		// as ApplyingServerTic read it on arrival
 	int				arrivalTic;	// the client's gametic then, of the newest record
-	WORD			index;
+	unsigned int	index;
 	BYTE			cls, flags, gen, bodyBytes;
 	bool			bCounted;	// from a datagram carrying a reset count
 	BYTE			resetCount;
@@ -283,7 +283,7 @@ static int snapmv_RecordClassOf( DSectorEffect * pMover );
 static void snapmv_KeptGateOn( );
 static int snapmv_Plane( BYTE bit );
 static void snapmv_KeptClear( );
-static void snapmv_ApplyRecord( BYTE cls, BYTE flags, BYTE gen, WORD index,
+static void snapmv_ApplyRecord( BYTE cls, BYTE flags, BYTE gen, unsigned int index,
 	const BYTE * pBody, unsigned int bodyBytes, int frame );
 
 // The server's mover gate (SnapMoverGate), reset on disconnect.
@@ -828,7 +828,7 @@ static void snapmv_KeptClear( )
 }
 
 // The newest refused record per plane and sector, which a gate-on applies.
-static void snapmv_Keep( BYTE cls, BYTE flags, BYTE gen, WORD index, const BYTE * pBody,
+static void snapmv_Keep( BYTE cls, BYTE flags, BYTE gen, unsigned int index, const BYTE * pBody,
 	unsigned int bodyBytes, int frame, BYTE planes )
 {
 	const unsigned int want = ( numsectors > 0 ) ? (unsigned int)numsectors : 0;
@@ -891,7 +891,7 @@ static void snapmv_KeptGateOn( )
 			// beat the reliable gate on carries a frame at or above the flip's.
 			if ( snapmv_BelowFloor( k.frame ))
 				continue;
-			snapmv_ApplyRecord( k.cls, k.flags, k.gen, (WORD)i, k.body,
+			snapmv_ApplyRecord( k.cls, k.flags, k.gen, i, k.body,
 				k.bodyBytes, k.frame );
 			++g_gateKeptApplied;
 		}
@@ -904,7 +904,7 @@ static int * g_moverStampFrame[2] = { NULL, NULL };
 static int g_moverStampCount = 0;
 static unsigned int g_moverStampEpoch = 0;
 
-static int & snapmv_Stamp( int plane, WORD index )
+static int & snapmv_Stamp( int plane, unsigned int index )
 {
 	const unsigned int epoch = StreamEpoch( );
 	if (( g_moverStampCount != numsectors ) || ( g_moverStampEpoch != epoch ))
@@ -1138,7 +1138,7 @@ unsigned int zx::netsnapshot::MoverStaleRecords( bool bReset )
 
 // Applies one mover record from the sink or the hold's replay, at the record's
 // own `frame`, finding the mover on its sector's plane (movers.md).
-static void snapmv_ApplyRecord( BYTE cls, BYTE flags, BYTE gen, WORD index,
+static void snapmv_ApplyRecord( BYTE cls, BYTE flags, BYTE gen, unsigned int index,
 	const BYTE * pBody, unsigned int bodyBytes, int frame )
 {
 	// Ahead of everything, the polyobject sink's legacy-live keep included.
@@ -1431,7 +1431,7 @@ static void snapmv_ApplyRecord( BYTE cls, BYTE flags, BYTE gen, WORD index,
 }
 
 // Into the hold, coalescing per plane, unless a newer held entry has it.
-static void snapmv_Hold( BYTE cls, BYTE flags, BYTE gen, WORD index,
+static void snapmv_Hold( BYTE cls, BYTE flags, BYTE gen, unsigned int index,
 	const BYTE * pBody, unsigned int bodyBytes, int frame )
 {
 	snapmv_ReapHold( );
@@ -1533,7 +1533,7 @@ static void snapmv_Hold( BYTE cls, BYTE flags, BYTE gen, WORD index,
 }
 
 // The sink entities.cpp routes an arriving SNAPEV_MOVER to.
-static void snapmv_MoverSink( BYTE cls, BYTE flags, BYTE gen, WORD index,
+static void snapmv_MoverSink( BYTE cls, BYTE flags, BYTE gen, unsigned int index,
 	const BYTE * pBody, unsigned int bodyBytes )
 {
 	// Reconnecting or between maps: numsectors is whatever the teardown
@@ -1632,7 +1632,7 @@ static void snapmv_AdvanceReplayed( const TArray<SnapMoverHeld> & replayed )
 		// A polyobject counts once, and only if it had a live action left.
 		if ( todo[k].poly >= 0 )
 		{
-			if ( PolyAdvance( (WORD)todo[k].poly, tics ) == 0 )
+			if ( PolyAdvance( (unsigned int)todo[k].poly, tics ) == 0 )
 				continue;
 		}
 		else
@@ -1724,7 +1724,7 @@ void DPlat::SnapCapture( bool bGone )
 	s.oldStatus	= (BYTE)m_OldStatus;
 	s.type		= (BYTE)m_Type;
 
-	MoverCapturePlat( this, (WORD)( m_Sector - sectors ), s, m_SnapBlocked,
+	MoverCapturePlat( this, (unsigned int)( m_Sector - sectors ), s, m_SnapBlocked,
 		bGone );
 }
 
@@ -1757,7 +1757,7 @@ void DFloor::SnapCapture( bool bGone )
 		s.perStepTime	= m_PerStepTime;
 	}
 
-	MoverCaptureFloor( this, (WORD)( m_Sector - sectors ), s, bStair,
+	MoverCaptureFloor( this, (unsigned int)( m_Sector - sectors ), s, bStair,
 		m_SnapBlocked, bGone );
 }
 
@@ -1845,7 +1845,7 @@ void DElevator::SnapCapture( bool bGone )
 	s.type				= (BYTE)m_Type;
 	s.direction			= (SBYTE)m_Direction;
 
-	MoverCaptureElevator( this, (WORD)( m_Sector - sectors ), s,
+	MoverCaptureElevator( this, (unsigned int)( m_Sector - sectors ), s,
 		m_SnapBlocked, bGone );
 }
 
@@ -1933,7 +1933,7 @@ void DCeiling::SnapCapture( bool bGone )
 	s.direction		= (SBYTE)m_Direction;
 	s.oldDirection	= (SBYTE)m_OldDirection;
 
-	MoverCaptureCeiling( this, (WORD)( m_Sector - sectors ), s,
+	MoverCaptureCeiling( this, (unsigned int)( m_Sector - sectors ), s,
 		m_SnapBlocked, bGone );
 }
 
@@ -2047,7 +2047,7 @@ void DDoor::SnapCapture( bool bGone )
 	s.type			= (BYTE)m_Type;
 	s.direction		= (SBYTE)m_Direction;
 
-	MoverCaptureDoor( this, (WORD)( m_Sector - sectors ), s,
+	MoverCaptureDoor( this, (unsigned int)( m_Sector - sectors ), s,
 		m_SnapBlocked, bGone );
 }
 
@@ -2132,7 +2132,7 @@ void DPillar::SnapCapture( bool bGone )
 	s.hexencrush	= m_Hexencrush ? 1 : 0;
 	s.blocked		= m_SnapBlocked;
 
-	MoverCapturePillar( this, (WORD)( m_Sector - sectors ), s, bGone );
+	MoverCapturePillar( this, (unsigned int)( m_Sector - sectors ), s, bGone );
 }
 
 // Applies one record, both planes on the first and after that only a stalled

@@ -23,7 +23,7 @@ namespace zx { namespace netsnapshot {
 
 // Polyobject records (design doc section 7.1).
 void PolyCapture( FPolyObj *poly, bool bAllocate = true );	// server: the whole polyobject
-void PolyApplyRecord( BYTE flags, WORD index, const BYTE *pBody,
+void PolyApplyRecord( BYTE flags, unsigned int index, const BYTE *pBody,
 	unsigned int bodyBytes, int frame );
 void PolyDestroyAll();
 bool OwnsPoly( FPolyObj *poly );
@@ -34,7 +34,7 @@ unsigned int PolyGateOn( unsigned int &applied );
 unsigned int PolyGateOff( );
 void PolyCountSuppressed();
 // Ticks a polyobject's record-made, unblocked actions forward; how many.
-unsigned int PolyAdvance( WORD index, int tics );
+unsigned int PolyAdvance( unsigned int index, int tics );
 
 }} // namespace zx::netsnapshot
 
