@@ -91,3 +91,7 @@ build-hosttools/
 tools/web/demo/site/
 .wrangler/
 build-tests-*/
+
+# [Kaori-Chani] The wide protocol fixture: 15 MB that mkwidemap.mjs rebuilds in under a
+# second, so the generator is committed and the map is not.
+src/zandronum/src/features/net-snapshot/testdata/widemap.wad
