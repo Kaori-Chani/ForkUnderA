@@ -331,7 +331,9 @@ Each hook is one call from a stock file into the module, listed here as it lands
     server with the legacy mover gate on, so a `nolegacy 0` server sends nothing for
     `OnDoorSound` to discard. The module holds the send, leaving `p_doors.cpp` no replication
     crossing to allow, and the sender is written against `OnDoorSound`'s own hand parse, so
-    there is no protocolspec entry and the golden does not move.
+    it has no protocolspec entry. It does have a golden line: the snapshot reads the fields
+    a hand-framed sender writes as well as the spec's, so this one reads `SVC2_DOORSOUND :
+    Short Byte` and a width change in it moves `tools/data/protocol-snapshot.txt`.
 - `cl_main.cpp`, `client_DoFloor`, `client_DestroyFloor`, `client_ChangeFloorDirection`,
   `client_ChangeFloorType`, `client_ChangeFloorDestDist`, `client_BuildStair`:
   `MoverLegacyStandsAside( SNAPMV_FLOOR )`, each after that handler's last read. `client_DoFloor`

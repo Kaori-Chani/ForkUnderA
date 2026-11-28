@@ -148,8 +148,12 @@ jobs:
       # protocol signature from the generator's OWN parser and fails if it drifts from the committed
       # golden. To ACCEPT an intentional change: tools/protocol-snapshot.py --write (and confirm
       # older clients still parse it). Pure Python, no build needed.
+      # [Kaori-Chani] The test runs first: the snapshot reads the hand-framed senders with a regex
+      # over C++ as well as the spec, so its own readers are pinned before the golden is.
       - name: Protocol wire-format snapshot
-        run: python3 tools/protocol-snapshot.py --check
+        run: |
+          python3 tools/protocol_snapshot_test.py
+          python3 tools/protocol-snapshot.py --check
 
       # [rc4l] The command SHAPE is pinned above; this pins the VALUES of enums carried
       # inside those commands. SERVERCOMMANDS_DoCeiling and friends send a sector-mover

@@ -7,8 +7,8 @@
 //
 // Description: The bytes of the three sector-keyed mover sounds a gated client
 // needs -- SVC2_DOORSOUND, SVC2_MOVERSOUND and SVC2_FLOORSOUND -- none of which
-// had its payload pinned: all three are written by hand in sv_commands.cpp, so the
-// protocol golden sees only their ids. Modelled on BYTESTREAM_s rather than the generated command, which
+// had its payload pinned: all three are written by hand in sv_commands.cpp, which the protocol
+// golden read as an id alone. Modelled on BYTESTREAM_s rather than the generated command, which
 // resolves live engine state and cannot be unit-linked (the netcode-testing skill);
 // faithful because NetCommand::addInteger and BYTESTREAM_s::WriteShort write the
 // same little-endian bytes. A sector index of 32,768 or more is out of scope here:
